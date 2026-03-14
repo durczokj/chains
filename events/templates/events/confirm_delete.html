@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Delete Event – PIPO{% endblock %}
+{% block content %}
+<div class="bg-white shadow rounded p-6 max-w-lg mx-auto">
+    <h1 class="text-xl font-bold text-red-700 mb-4">Delete Event</h1>
+    <p class="mb-4">Are you sure you want to delete <strong>{{ event }}</strong>?</p>
+    <form method="post">
+        {% csrf_token %}
+        <div class="flex gap-3">
+            <button type="submit" class="bg-red-600 text-white px-6 py-2 rounded hover:bg-red-700">Delete</button>
+            <a href="{% url 'event-list' %}" class="px-6 py-2 rounded border hover:bg-gray-50">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

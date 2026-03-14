@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} – PIPO{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4">{{ title }}</h1>
+
+<form method="post" id="event-form" class="bg-white shadow rounded p-6 space-y-6">
+    {% csrf_token %}
+
+    {# Errors #}
+    {% if form.errors or tform.errors %}
+    <div class="bg-red-50 border border-red-200 rounded p-3 text-red-700 text-sm">
+        {% for field, errors in form.errors.items %}
+            {% for error in errors %}<p>{{ error }}</p>{% endfor %}
+        {% endfor %}
+        {% for field, errors in tform.errors.items %}
+            {% for error in errors %}<p>{{ error }}</p>{% endfor %}
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {# ── STEP 1: Choose event type ── #}
+    <div id="step-1">
+        <h2 class="text-lg font-semibold mb-3">Step 1 — Choose Event Type</h2>
+        <div class="grid grid-cols-3 gap-4 max-w-2xl">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Country</label>
+                {{ form.iso_country_code }}
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Transition Type</label>
+                {{ tform.type }}
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Code Type</label>
+                {{ tform.code_type }}
+            </div>
+        </div>
+        <button type="button" id="confirm-type-btn"
+                class="mt-4 bg-indigo-600 text-white px-6 py-2 rounded hover:bg-indigo-700">
+            Next &rarr;
+        </button>
+    </div>
+
+    {# ── STEP 2: Event details + code fields ── #}
+    <div id="step-2" class="hidden">
+        <button type="button" id="back-btn"
+                class="text-sm text-indigo-600 hover:underline mb-4">&larr; Change type</button>
+
+        <h2 class="text-lg font-semibold mb-3">Event Details</h2>
+        <div class="grid grid-cols-2 gap-4">
+            {% for field in form %}
+            {% if field.name != "iso_country_code" %}
+            <div{% if field.name == "comment" %} class="col-span-2"{% endif %}>
+                <label class="block text-sm font-medium text-gray-700 mb-1">{{ field.label }}</label>
+                {{ field }}
+                {% for error in field.errors %}
+                <p class="text-red-600 text-xs mt-1">{{ error }}</p>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+
+        <hr class="my-4">
+        <h2 class="text-lg font-semibold" id="type-heading">Code Details</h2>
+
+        {# PI Code – free text input (Introduction) #}
+        <div id="pi-text-group" class="hidden mt-3">
+            <label class="block text-sm font-medium text-gray-700 mb-1">PI Code</label>
+            <input type="number" id="pi-text-input"
+                   class="border rounded px-3 py-2 w-full max-w-xs"
+                   placeholder="Enter code">
+        </div>
+
+        {# PI Code – dropdown (PIPO) #}
+        <div id="pi-select-group" class="hidden mt-3">
+            <label class="block text-sm font-medium text-gray-700 mb-1">PI Code</label>
+            <select id="pi-select" class="border rounded px-3 py-2 w-full max-w-xs">
+                <option value="">---</option>
+            </select>
+        </div>
+
+        {# PO Code – dropdown (Discontinuation & PIPO) #}
+        <div id="po-select-group" class="hidden mt-3">
+            <label class="block text-sm font-medium text-gray-700 mb-1">PO Code</label>
+            <select id="po-select" class="border rounded px-3 py-2 w-full max-w-xs">
+                <option value="">---</option>
+            </select>
+        </div>
+
+        {# PO Code – free text input (proxy PO) #}
+        <div id="po-text-group" class="hidden mt-3">
+            <label class="block text-sm font-medium text-gray-700 mb-1">PO Code</label>
+            <input type="number" id="po-text-input"
+                   class="border rounded px-3 py-2 w-full max-w-xs"
+                   placeholder="Enter code">
+        </div>
+
+        {# Proxy introduction checkbox (PIPO only) #}
+        <div id="proxy-intro-group" class="hidden mt-3">
+            <label class="flex items-center gap-2">
+                <input type="checkbox" name="proxy_introduction" id="proxy-intro-cb">
+                <span class="text-sm text-gray-700">New PI code (proxy introduction)</span>
+            </label>
+        </div>
+
+        {# Proxy PO checkbox (PIPO only) #}
+        <div id="proxy-po-group" class="hidden mt-3">
+            <label class="flex items-center gap-2">
+                <input type="checkbox" name="proxy_po" id="proxy-po-cb">
+                <span class="text-sm text-gray-700">New PO code (proxy introduction at 1970-12-31)</span>
+            </label>
+        </div>
+
+        {# Discontinue PO checkbox (PIPO only) #}
+        <div id="discont-group" class="hidden mt-3">
+            <label class="flex items-center gap-2">
+                <input type="checkbox" name="discontinue_po" id="discont-cb" checked>
+                <span class="text-sm text-gray-700">Also discontinue PO code</span>
+            </label>
+        </div>
+
+        {# Hidden inputs that actually submit to the form #}
+        <input type="hidden" name="pi_code" id="pi-hidden"
+               value="{{ tform.pi_code.value|default_if_none:'' }}">
+        <input type="hidden" name="po_code" id="po-hidden"
+               value="{{ tform.po_code.value|default_if_none:'' }}">
+
+        <div class="flex gap-3 mt-6">
+            <button type="submit"
+                    class="bg-indigo-600 text-white px-6 py-2 rounded hover:bg-indigo-700">
+                Save
+            </button>
+            <a href="{% url 'event-list' %}"
+               class="px-6 py-2 rounded border hover:bg-gray-50">Cancel</a>
+        </div>
+    </div>
+</form>
+
+<script>
+(function () {
+    const ACTIVE_CODES_URL = "{% url 'active-codes-api' %}";
+
+    // Elements
+    const typeSelect   = document.getElementById('id_type');
+    const step1        = document.getElementById('step-1');
+    const step2        = document.getElementById('step-2');
+    const confirmBtn   = document.getElementById('confirm-type-btn');
+    const backBtn      = document.getElementById('back-btn');
+
+    const piTextGroup     = document.getElementById('pi-text-group');
+    const piSelectGroup   = document.getElementById('pi-select-group');
+    const poSelectGroup   = document.getElementById('po-select-group');
+    const poTextGroup     = document.getElementById('po-text-group');
+    const proxyIntroGroup = document.getElementById('proxy-intro-group');
+    const proxyPoGroup    = document.getElementById('proxy-po-group');
+    const discontGroup    = document.getElementById('discont-group');
+    const proxyIntroCb    = document.getElementById('proxy-intro-cb');
+    const proxyPoCb       = document.getElementById('proxy-po-cb');
+
+    const piTextInput  = document.getElementById('pi-text-input');
+    const piSelect     = document.getElementById('pi-select');
+    const poSelect     = document.getElementById('po-select');
+    const poTextInput  = document.getElementById('po-text-input');
+    const piHidden     = document.getElementById('pi-hidden');
+    const poHidden     = document.getElementById('po-hidden');
+    const heading     = document.getElementById('type-heading');
+
+    // Fetch active codes
+    async function fetchCodes(codeType) {
+        const r = await fetch(ACTIVE_CODES_URL + '?code_type=' + encodeURIComponent(codeType));
+        const d = await r.json();
+        return d.codes;
+    }
+
+    function populateSelect(sel, codes, current) {
+        sel.innerHTML = '<option value="">---</option>';
+        for (const c of codes) {
+            const o = document.createElement('option');
+            o.value = c;
+            o.textContent = c;
+            if (String(c) === String(current)) o.selected = true;
+            sel.appendChild(o);
+        }
+    }
+
+    function hideAll() {
+        piTextGroup.classList.add('hidden');
+        piSelectGroup.classList.add('hidden');
+        poSelectGroup.classList.add('hidden');
+        poTextGroup.classList.add('hidden');
+        proxyIntroGroup.classList.add('hidden');
+        proxyPoGroup.classList.add('hidden');
+        discontGroup.classList.add('hidden');
+    }
+
+    async function showStep2() {
+        const t = typeSelect.value;
+        const ct = document.getElementById('id_code_type').value;
+        const country = document.getElementById('id_iso_country_code').value;
+        if (!t || !ct || !country) {
+            alert('Please fill in Country, Transition Type, and Code Type.');
+            return;
+        }
+
+        hideAll();
+
+        if (t === 'INTRO') {
+            heading.textContent = 'Introduction';
+            piTextGroup.classList.remove('hidden');
+            piTextInput.value = piHidden.value || '';
+        } else if (t === 'DISCONT') {
+            heading.textContent = 'Discontinuation';
+            const codes = await fetchCodes(ct);
+            populateSelect(poSelect, codes, poHidden.value);
+            poSelectGroup.classList.remove('hidden');
+        } else if (t === 'PIPO') {
+            heading.textContent = 'PIPO';
+            const codes = await fetchCodes(ct);
+            populateSelect(piSelect, codes, piHidden.value);
+            populateSelect(poSelect, codes, poHidden.value);
+            togglePipoPI(proxyIntroCb.checked);
+            togglePipoPO(proxyPoCb.checked);
+            proxyIntroGroup.classList.remove('hidden');
+            proxyPoGroup.classList.remove('hidden');
+            discontGroup.classList.remove('hidden');
+        }
+
+        step1.classList.add('hidden');
+        step2.classList.remove('hidden');
+    }
+
+    // Toggle PI input mode for PIPO: free text vs dropdown
+    function togglePipoPI(isProxy) {
+        if (isProxy) {
+            piSelectGroup.classList.add('hidden');
+            piTextGroup.classList.remove('hidden');
+            piTextInput.value = piHidden.value || '';
+        } else {
+            piTextGroup.classList.add('hidden');
+            piSelectGroup.classList.remove('hidden');
+        }
+    }
+
+    // Toggle PO input mode for PIPO: free text vs dropdown
+    function togglePipoPO(isProxy) {
+        if (isProxy) {
+            poSelectGroup.classList.add('hidden');
+            poTextGroup.classList.remove('hidden');
+            poTextInput.value = poHidden.value || '';
+        } else {
+            poTextGroup.classList.add('hidden');
+            poSelectGroup.classList.remove('hidden');
+        }
+    }
+
+    proxyIntroCb.addEventListener('change', () => {
+        if (typeSelect.value === 'PIPO') {
+            togglePipoPI(proxyIntroCb.checked);
+        }
+    });
+
+    proxyPoCb.addEventListener('change', () => {
+        if (typeSelect.value === 'PIPO') {
+            togglePipoPO(proxyPoCb.checked);
+        }
+    });
+
+    // Sync visible → hidden
+    piTextInput.addEventListener('input', () => { piHidden.value = piTextInput.value; });
+    piSelect.addEventListener('change',   () => { piHidden.value = piSelect.value; });
+    poSelect.addEventListener('change',   () => { poHidden.value = poSelect.value; });
+    poTextInput.addEventListener('input',  () => { poHidden.value = poTextInput.value; });
+
+    confirmBtn.addEventListener('click', showStep2);
+
+    backBtn.addEventListener('click', () => {
+        step2.classList.add('hidden');
+        step1.classList.remove('hidden');
+    });
+
+    // Edit mode: auto-advance
+    {% if edit_mode %}
+    document.addEventListener('DOMContentLoaded', showStep2);
+    {% endif %}
+
+    // If form had validation errors, re-show step 2
+    {% if form.errors or tform.errors %}
+    document.addEventListener('DOMContentLoaded', showStep2);
+    {% endif %}
+})();
+</script>
+{% endblock %}

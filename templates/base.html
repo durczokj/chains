@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}PIPO{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <nav class="bg-indigo-700 text-white px-6 py-3 flex gap-6 items-center">
+        <span class="font-bold text-lg">PIPO</span>
+        <a href="{% url 'event-list' %}" class="hover:underline">Events</a>
+        <a href="{% url 'lifecycle-list' %}" class="hover:underline">Lifecycles</a>
+        <a href="{% url 'converter' %}" class="hover:underline">Converter</a>
+        <a href="/api/" class="hover:underline ml-auto text-indigo-200 text-sm">API ↗</a>
+    </nav>
+    <main class="max-w-6xl mx-auto px-4 py-6">
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>
