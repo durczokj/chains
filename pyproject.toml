@@ -10,10 +10,25 @@ force_single_line = false
 [tool.mypy]
 python_version = "3.12"
 plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
+strict = true
 ignore_missing_imports = true
-warn_unused_ignores = true
-warn_redundant_casts = true
-check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["test_api", "quick_test"]
+disallow_untyped_defs = false
+disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = [
+    "events.admin",
+    "events.forms",
+    "events.serializers",
+    "events.views",
+    "families.admin",
+    "families.serializers",
+    "families.views",
+]
+disallow_any_generics = false
 
 [tool.django-stubs]
 django_settings_module = "chains_project.settings"

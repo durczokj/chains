@@ -1,10 +1,14 @@
 import datetime
+from typing import Any
 
-from django.db.models import Q
+from django.db.models import Q, QuerySet
+from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, render
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view
+from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
 
 from events.models import CodeType, Country
 from families.engine import recompute_families
@@ -20,12 +24,12 @@ from families.serializers import (
 class ProductFamilyViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = ProductFamily.objects.all()
 
-    def get_serializer_class(self):
+    def get_serializer_class(self) -> type[BaseSerializer[Any]]:
         if self.action == "list":
             return ProductFamilyListSerializer
         return ProductFamilySerializer
 
-    def get_queryset(self):
+    def get_queryset(self) -> QuerySet[ProductFamily]:
         qs = super().get_queryset()
         country = self.request.query_params.get("country")
         code_type = self.request.query_params.get("code_type")
@@ -36,7 +40,7 @@ class ProductFamilyViewSet(viewsets.ReadOnlyModelViewSet):
         return qs
 
     @action(detail=False, methods=["post"])
-    def recompute(self, request):
+    def recompute(self, request: Request) -> Response:
         from events.models import Country as CountryModel
 
         country = request.query_params.get("country")
@@ -60,7 +64,9 @@ class ProductFamilyViewSet(viewsets.ReadOnlyModelViewSet):
         return Response({"status": "ok"})
 
 
-def _resolve_code(code, code_type, country, date):
+def _resolve_code(
+    code: int, code_type: str, country: str, date: str | datetime.date
+) -> list[dict[str, object]]:
     """Resolve a single code to its product family identifier."""
     date = datetime.date.fromisoformat(str(date)) if not isinstance(date, datetime.date) else date
 
@@ -94,7 +100,7 @@ def _resolve_code(code, code_type, country, date):
 
 
 @api_view(["GET"])
-def resolve_code(request):
+def resolve_code(request: Request) -> Response:
     serializer = CodeResolveSerializer(data=request.query_params)
     serializer.is_valid(raise_exception=True)
     d = serializer.validated_data
@@ -107,7 +113,7 @@ def resolve_code(request):
 
 
 @api_view(["GET"])
-def resolve_reverse(request):
+def resolve_reverse(request: Request) -> Response:
     identifier = request.query_params.get("identifier")
     date_str = request.query_params.get("date")
     if not identifier or not date_str:
@@ -142,7 +148,7 @@ def resolve_reverse(request):
 
 
 @api_view(["POST"])
-def resolve_bulk(request):
+def resolve_bulk(request: Request) -> Response:
     serializer = BulkResolveSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     results = []
@@ -169,7 +175,7 @@ def resolve_bulk(request):
 # --- Frontend views ---
 
 
-def family_recompute_view(request):
+def family_recompute_view(request: HttpRequest) -> HttpResponse:
     """Recompute all families and redirect back to the list."""
     from django.shortcuts import redirect
 
@@ -180,7 +186,7 @@ def family_recompute_view(request):
     return redirect("family-list")
 
 
-def family_list_view(request):
+def family_list_view(request: HttpRequest) -> HttpResponse:
     country = request.GET.get("country", "")
     code_type = request.GET.get("code_type", "")
     qs = ProductFamily.objects.select_related("code_type")
@@ -209,7 +215,7 @@ def family_list_view(request):
     )
 
 
-def generation_list_view(request):
+def generation_list_view(request: HttpRequest) -> HttpResponse:
     country = request.GET.get("country", "")
     code_type = request.GET.get("code_type", "")
     code = request.GET.get("code", "")
@@ -254,7 +260,7 @@ def generation_list_view(request):
     )
 
 
-def family_detail_view(request, pk):
+def family_detail_view(request: HttpRequest, pk: int) -> HttpResponse:
     from families.engine import get_product_family_mermaid
 
     pf = get_object_or_404(ProductFamily, pk=pk)
@@ -269,12 +275,12 @@ def family_detail_view(request, pk):
     )
 
 
-def converter_view(request):
+def converter_view(request: HttpRequest) -> HttpResponse:
     code_types = CodeType.objects.all()
     countries = Country.objects.all()
     mode = request.GET.get("mode", "")
 
-    ctx = {
+    ctx: dict[str, Any] = {
         "code_types": code_types,
         "countries": countries,
         "mode": mode,

@@ -1,3 +1,5 @@
+from typing import Any
+
 from rest_framework import serializers
 
 from families.models import (
@@ -39,11 +41,11 @@ class ProductFamilySerializer(serializers.ModelSerializer):
         model = ProductFamily
         fields = ["id", "identifier", "iso_country_code", "code_type_id", "generations", "links"]
 
-    def get_links(self, obj):
+    def get_links(self, obj: ProductFamily) -> list[dict[str, Any]]:
         links = GenerationLink.objects.filter(
             predecessor__product_family=obj, successor__product_family=obj
         )
-        return GenerationLinkSerializer(links, many=True).data
+        return list(GenerationLinkSerializer(links, many=True).data)
 
 
 class ProductFamilyListSerializer(serializers.ModelSerializer):

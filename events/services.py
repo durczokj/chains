@@ -12,6 +12,7 @@ endpoint when you need up-to-date product families.
 """
 
 import datetime as _dt
+from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -22,12 +23,13 @@ from events.models import (
     CodeTransition,
     Country,
     Discontinuation,
+    Event,
     Introduction,
     TransitionType,
 )
 
 
-def save_event_transitions(event, transitions_data):
+def save_event_transitions(event: Event, transitions_data: list[dict[str, Any]]) -> None:
     """
     Replace **all** transitions on *event*, validate against CodeState,
     update CodeState incrementally, and mark the country dirty.
@@ -44,6 +46,7 @@ def save_event_transitions(event, transitions_data):
         if hasattr(event.iso_country_code, "pk")
         else event.iso_country_code
     )
+    assert isinstance(country_code, str)
 
     with transaction.atomic():
         # 1. Undo CodeState effects of any existing transitions on this event
@@ -89,7 +92,7 @@ def save_event_transitions(event, transitions_data):
         Country.objects.filter(pk=country_code).update(families_dirty=True)
 
 
-def rebuild_code_states(iso_country_code=None):
+def rebuild_code_states(iso_country_code: str | None = None) -> None:
     """Rebuild CodeState from scratch by replaying all transitions.
 
     This is the authoritative rebuild — use it after a migration or if
@@ -139,7 +142,7 @@ def rebuild_code_states(iso_country_code=None):
 # ---------------------------------------------------------------------------
 
 
-def _rollback_code_states(event, country_code):
+def _rollback_code_states(event: Event, country_code: str) -> None:
     """Reverse the CodeState effects of all transitions on this event."""
     transitions = list(
         event.transitions.select_related("introduction", "discontinuation", "chain").order_by(
@@ -170,19 +173,20 @@ def _rollback_code_states(event, country_code):
 
 
 def _validate_and_create(
-    event,
+    event: Event,
     *,
-    country_code,
-    date,
-    type,
-    code_type_id,
-    introduction_code=None,
-    discontinuation_code=None,
-    intro_end_dates=None,
-):
+    country_code: str,
+    date: _dt.date,
+    type: str,
+    code_type_id: str,
+    introduction_code: int | None = None,
+    discontinuation_code: int | None = None,
+    intro_end_dates: dict[int, _dt.date] | None = None,
+) -> CodeTransition:
     """Validate one transition against CodeState, create DB records, update CodeState."""
 
     if type == TransitionType.INTRODUCTION:
+        assert introduction_code is not None
         effective_end = (intro_end_dates or {}).get(introduction_code)
         _validate_introduction(country_code, code_type_id, introduction_code, date, effective_end)
         ct = CodeTransition.objects.create(
@@ -201,6 +205,7 @@ def _validate_and_create(
         )
 
     elif type == TransitionType.DISCONTINUATION:
+        assert discontinuation_code is not None
         _validate_discontinuation(country_code, code_type_id, discontinuation_code)
         ct = CodeTransition.objects.create(
             event=event,
@@ -225,6 +230,8 @@ def _validate_and_create(
         )
 
     elif type == TransitionType.chain:
+        assert introduction_code is not None
+        assert discontinuation_code is not None
         _validate_chain(country_code, code_type_id, introduction_code, discontinuation_code)
         ct = CodeTransition.objects.create(
             event=event,
@@ -240,10 +247,19 @@ def _validate_and_create(
         ch.full_clean()
         ch.save()
 
+    else:
+        raise ValueError(f"Unknown transition type: {type}")
+
     return ct
 
 
-def _validate_introduction(country_code, code_type_id, code, date, effective_end=None):
+def _validate_introduction(
+    country_code: str,
+    code_type_id: str,
+    code: int,
+    date: _dt.date,
+    effective_end: _dt.date | None = None,
+) -> None:
     """Ensure introducing this code doesn't create overlapping generations.
 
     Uses proper interval overlap: two intervals [s1,e1) and [s2,e2) overlap
@@ -270,7 +286,7 @@ def _validate_introduction(country_code, code_type_id, code, date, effective_end
         )
 
 
-def _validate_discontinuation(country_code, code_type_id, code):
+def _validate_discontinuation(country_code: str, code_type_id: str, code: int) -> None:
     """Ensure the code has an active generation to discontinue."""
     active = CodeState.objects.filter(
         iso_country_code=country_code,
@@ -286,7 +302,9 @@ def _validate_discontinuation(country_code, code_type_id, code):
         )
 
 
-def _validate_chain(country_code, code_type_id, introduction_code, discontinuation_code):
+def _validate_chain(
+    country_code: str, code_type_id: str, introduction_code: int, discontinuation_code: int
+) -> None:
     """Ensure chain references valid codes."""
     # PO (discontinuation_code) must have a generation (active or discontinued)
     po_exists = CodeState.objects.filter(

@@ -14,7 +14,7 @@ class Country(models.Model):
         ordering = ["code"]
         verbose_name_plural = "Countries"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.code} – {self.name}"
 
 
@@ -22,7 +22,7 @@ class CodeType(models.Model):
     id = models.CharField(max_length=10, primary_key=True)
     type = models.CharField(max_length=50)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.type
 
 
@@ -46,7 +46,7 @@ class Event(models.Model):
             models.Index(fields=["iso_country_code"]),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Event {self.pk} – {self.iso_country_code}"
 
 
@@ -69,10 +69,10 @@ class CodeTransition(models.Model):
             models.Index(fields=["date"]),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.get_type_display()} ({self.code_type}) {self.date} – Event {self.event_id}"
 
-    def clean(self):
+    def clean(self) -> None:
         # Validate that exactly one subtype record exists
         if self.pk:
             has_intro = hasattr(self, "introduction")
@@ -94,7 +94,7 @@ class Introduction(models.Model):
     )
     introduction_code = models.BigIntegerField()
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Introduction introduction_code={self.introduction_code}"
 
 
@@ -104,7 +104,7 @@ class Discontinuation(models.Model):
     )
     discontinuation_code = models.BigIntegerField()
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Discontinuation discontinuation_code={self.discontinuation_code}"
 
 
@@ -119,13 +119,13 @@ class Chain(models.Model):
         verbose_name = "chain"
         verbose_name_plural = "chains"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return (
             f"chain introduction={self.introduction_code}"
             f" discontinuation={self.discontinuation_code}"
         )
 
-    def clean(self):
+    def clean(self) -> None:
         if self.introduction_code == self.discontinuation_code:
             raise ValidationError("Introduction and discontinuation codes must differ.")
 
@@ -160,7 +160,7 @@ class CodeState(models.Model):
             models.Index(fields=["status"]),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return (
             f"CodeState {self.code} ({self.code_type})"
             f" [{self.status}] {self.start_date}\u2013{self.end_date}"

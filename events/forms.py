@@ -1,3 +1,5 @@
+from typing import Any
+
 from django import forms
 from django.forms import inlineformset_factory
 
@@ -13,7 +15,9 @@ from events.models import (
 from families.models import Generation
 
 
-def _active_code_choices(code_type=None):
+def _active_code_choices(
+    code_type: CodeType | None = None,
+) -> list[tuple[str | int, str]]:
     """Return choices of currently active codes (end_date = 9999-12-31)."""
     qs = Generation.objects.filter(discontinuation__isnull=True)
     if code_type:
@@ -44,13 +48,13 @@ class CodeTransitionForm(forms.ModelForm):
         model = CodeTransition
         fields = ["code_type", "type"]
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         field = self.fields["discontinuation_code"]
         assert isinstance(field, forms.TypedChoiceField)
         field.choices = _active_code_choices()
 
-    def clean(self):
+    def clean(self) -> dict[str, object] | None:
         cleaned = super().clean()
         if not cleaned:
             return cleaned
@@ -68,20 +72,20 @@ class CodeTransitionForm(forms.ModelForm):
                 )
         return cleaned
 
-    def _is_active_code(self, code, code_type):
+    def _is_active_code(self, code: int, code_type: CodeType) -> bool:
         return Generation.objects.filter(
             code=code,
             product_family__code_type=code_type,
             discontinuation__isnull=True,
         ).exists()
 
-    def save(self, commit=True):
-        ct = super().save(commit=commit)
+    def save(self, commit: bool = True) -> CodeTransition:
+        ct: CodeTransition = super().save(commit=commit)
         if commit:
             self._save_subtype(ct)
         return ct
 
-    def _save_subtype(self, ct):
+    def _save_subtype(self, ct: CodeTransition) -> None:
         # Delete any existing subtypes when editing
         Introduction.objects.filter(code_transition=ct).delete()
         Discontinuation.objects.filter(code_transition=ct).delete()
@@ -136,7 +140,7 @@ class TransitionForm(forms.Form):
     introduction_code = forms.IntegerField(required=False)
     discontinuation_code = forms.IntegerField(required=False)
 
-    def clean(self):
+    def clean(self) -> dict[str, object] | None:
         cleaned = super().clean()
         if not cleaned:
             return cleaned
@@ -154,14 +158,14 @@ class TransitionForm(forms.Form):
                 )
         return cleaned
 
-    def _is_active_code(self, code, code_type):
+    def _is_active_code(self, code: int, code_type: CodeType) -> bool:
         return Generation.objects.filter(
             code=code,
             product_family__code_type=code_type,
             discontinuation__isnull=True,
         ).exists()
 
-    def save(self, event, existing_transition=None):
+    def save(self, event: Event, existing_transition: CodeTransition | None = None) -> None:
         from events.services import save_event_transitions
 
         data = self.cleaned_data

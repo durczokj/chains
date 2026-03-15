@@ -8,6 +8,9 @@ Usage:
     python manage.py rebuild_state --country PL      # scope to one country
 """
 
+from argparse import ArgumentParser
+from typing import Any
+
 from django.core.management.base import BaseCommand
 
 from events.models import Country
@@ -18,7 +21,7 @@ from families.engine import recompute_families
 class Command(BaseCommand):
     help = "Rebuild CodeState index from transitions and optionally recompute families."
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: ArgumentParser) -> None:
         parser.add_argument(
             "--country", type=str, default=None, help="Limit to a single ISO country code."
         )
@@ -26,7 +29,7 @@ class Command(BaseCommand):
             "--recompute", action="store_true", help="Also recompute families (product families)."
         )
 
-    def handle(self, **options):
+    def handle(self, **options: Any) -> None:
         country = options["country"]
 
         self.stdout.write("Rebuilding CodeState index ...")

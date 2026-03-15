@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError
@@ -72,12 +74,12 @@ class CodeTransitionWriteSerializer(serializers.Serializer):
     introduction_code = serializers.IntegerField(required=False)
     discontinuation_code = serializers.IntegerField(required=False)
 
-    def validate_code_type_id(self, value):
+    def validate_code_type_id(self, value: str) -> str:
         if not CodeType.objects.filter(pk=value).exists():
             raise serializers.ValidationError(f"Code type '{value}' does not exist.")
         return value
 
-    def validate(self, data):
+    def validate(self, data: dict[str, object]) -> dict[str, object]:
         t = data["type"]
         if t == TransitionType.INTRODUCTION:
             if "introduction_code" not in data:
@@ -115,14 +117,14 @@ class EventSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_by", "created_at", "updated_at"]
 
-    def create(self, validated_data):
-        transitions_data = validated_data.pop("transitions", [])
+    def create(self, validated_data: dict[str, Any]) -> Event:
+        transitions_data: list[dict[str, Any]] = validated_data.pop("transitions", [])
         event = Event.objects.create(**validated_data)
         self._save_transitions(event, transitions_data)
         return event
 
-    def update(self, instance, validated_data):
-        transitions_data = validated_data.pop("transitions", None)
+    def update(self, instance: Event, validated_data: dict[str, Any]) -> Event:
+        transitions_data: list[dict[str, Any]] | None = validated_data.pop("transitions", None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
@@ -130,7 +132,7 @@ class EventSerializer(serializers.ModelSerializer):
             self._save_transitions(instance, transitions_data)
         return instance
 
-    def _save_transitions(self, event, transitions_data):
+    def _save_transitions(self, event: Event, transitions_data: list[dict[str, Any]]) -> None:
         from events.services import save_event_transitions
 
         try:

@@ -26,7 +26,7 @@ from families.models import (
 )
 
 
-def recompute_families(iso_country_code=None):
+def recompute_families(iso_country_code: str | None = None) -> None:
     """Recompute all families, optionally scoped to a single country."""
     qs = CodeTransition.objects.all()
     if iso_country_code:
@@ -38,7 +38,7 @@ def recompute_families(iso_country_code=None):
         _recompute_country(country)
 
 
-def _recompute_country(country):
+def _recompute_country(country: str) -> None:
     """Recompute families for a single country, per code type."""
     t0 = time.perf_counter()
     with transaction.atomic():
@@ -62,7 +62,7 @@ def _recompute_country(country):
     print(f"  [{country}] TOTAL: {time.perf_counter()-t0:.3f}s")
 
 
-def _recompute_country_code_type(country, code_type_id):
+def _recompute_country_code_type(country: str, code_type_id: str) -> None:
     """Recompute chains for a single country + code type combination.
 
     Uses bulk_create for all DB writes to minimise round-trips.
@@ -217,7 +217,9 @@ def _recompute_country_code_type(country, code_type_id):
     )
 
 
-def _check_generation_overlaps_from_graph(G, country, code_type_id):
+def _check_generation_overlaps_from_graph(
+    G: nx.DiGraph[int], country: str, code_type_id: str
+) -> None:
     """Check for overlapping generations purely from the in-memory graph."""
     by_code = defaultdict(list)
     for _node_id, data in G.nodes(data=True):
@@ -233,14 +235,16 @@ def _check_generation_overlaps_from_graph(G, country, code_type_id):
                 )
 
 
-def _check_unresolved_transitions(unresolved, country, code_type_id):
+def _check_unresolved_transitions(
+    unresolved: list[tuple[CodeTransition, str]], country: str, code_type_id: str
+) -> None:
     """Raise ValidationError if any transitions could not be resolved."""
     if unresolved:
         msgs = [reason for _ct, reason in unresolved]
         raise ValidationError(msgs)
 
 
-def get_product_family_mermaid(product_family_id):
+def get_product_family_mermaid(product_family_id: int) -> str:
     """Return a Mermaid graph definition for a product family's DAG."""
     pf = ProductFamily.objects.get(pk=product_family_id)
     generations = pf.generations.select_related("introduction", "discontinuation").all()

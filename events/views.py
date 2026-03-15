@@ -1,7 +1,10 @@
 import datetime
+from typing import Any
 
 from django.db import transaction
+from django.db.models import QuerySet
 from rest_framework import viewsets
+from rest_framework.serializers import BaseSerializer
 
 from events.models import CodeState, CodeType, Country, Event, TransitionType
 from events.serializers import CodeTypeSerializer, CountrySerializer, EventSerializer
@@ -26,7 +29,7 @@ class EventViewSet(viewsets.ModelViewSet):
     )
     serializer_class = EventSerializer
 
-    def get_queryset(self):
+    def get_queryset(self) -> QuerySet[Event]:
         qs = super().get_queryset()
         country = self.request.query_params.get("country")
         date_from = self.request.query_params.get("date_from")
@@ -39,15 +42,15 @@ class EventViewSet(viewsets.ModelViewSet):
             qs = qs.filter(transitions__date__lte=date_to)
         return qs.distinct()
 
-    def perform_create(self, serializer):
+    def perform_create(self, serializer: BaseSerializer[Any]) -> None:
         serializer.save(
             created_by=self.request.user if self.request.user.is_authenticated else None
         )
 
-    def perform_update(self, serializer):
+    def perform_update(self, serializer: BaseSerializer[Any]) -> None:
         serializer.save()
 
-    def perform_destroy(self, instance):
+    def perform_destroy(self, instance: Event) -> None:
         country = instance.iso_country_code
         country_code = country.pk if hasattr(country, "pk") else country
 

@@ -1,8 +1,9 @@
 import datetime
+from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.http import JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
 from events.forms import EventForm
@@ -11,7 +12,7 @@ from events.services import save_event_transitions
 from families.models import Generation
 
 
-def event_list_view(request):
+def event_list_view(request: HttpRequest) -> HttpResponse:
     country = request.GET.get("country", "")
     qs = Event.objects.prefetch_related(
         "transitions__code_type",
@@ -37,7 +38,7 @@ def event_list_view(request):
     )
 
 
-def event_create_view(request):
+def event_create_view(request: HttpRequest) -> HttpResponse:
     """Create the event (country, comment) then redirect to edit page to add transitions."""
     if request.method == "POST":
         form = EventForm(request.POST)
@@ -59,7 +60,7 @@ def event_create_view(request):
     )
 
 
-def event_edit_view(request, pk):
+def event_edit_view(request: HttpRequest, pk: int) -> HttpResponse:
     """Edit event details and transitions together.  All transitions are
     submitted as a batch and replaced atomically."""
     event = get_object_or_404(Event, pk=pk)
@@ -102,7 +103,9 @@ def event_edit_view(request, pk):
     )
 
 
-def _parse_transitions(post_data):
+def _parse_transitions(
+    post_data: dict[str, str],
+) -> list[dict[str, Any]]:
     """Parse indexed transition fields from POST data."""
     count = int(post_data.get("transition_count", 0))
     result = []
@@ -126,7 +129,7 @@ def _parse_transitions(post_data):
     return result
 
 
-def event_delete_view(request, pk):
+def event_delete_view(request: HttpRequest, pk: int) -> HttpResponse:
     event = get_object_or_404(Event, pk=pk)
     country = event.iso_country_code
     country_code = country.pk if hasattr(country, "pk") else country
@@ -158,7 +161,7 @@ def event_delete_view(request, pk):
     return render(request, "events/confirm_delete.html", {"event": event})
 
 
-def active_codes_json_view(request):
+def active_codes_json_view(request: HttpRequest) -> JsonResponse:
     """Return active generation codes as JSON, optionally filtered by code_type."""
     code_type = request.GET.get("code_type", "")
     qs = Generation.objects.filter(discontinuation__isnull=True)

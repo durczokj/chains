@@ -16,7 +16,7 @@ class ProductFamily(models.Model):
         ordering = ["iso_country_code", "identifier"]
         verbose_name_plural = "Product families"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.identifier
 
 
@@ -41,24 +41,24 @@ class Generation(models.Model):
         ordering = ["introduction__date"]
 
     @property
-    def start_date(self):
+    def start_date(self) -> datetime.date:
         return self.introduction.date
 
     @property
-    def end_date(self):
+    def end_date(self) -> datetime.date:
         if self.discontinuation:
             return self.discontinuation.date
         return datetime.date(9999, 12, 31)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Gen {self.pk} (code:{self.code} {self.start_date}–{self.end_date})"
 
     @property
-    def is_root(self):
+    def is_root(self) -> bool:
         return not GenerationLink.objects.filter(successor=self).exists()
 
     @property
-    def is_leaf(self):
+    def is_leaf(self) -> bool:
         return not GenerationLink.objects.filter(predecessor=self).exists()
 
 
@@ -79,5 +79,5 @@ class GenerationLink(models.Model):
     class Meta:
         unique_together = [("predecessor", "successor")]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Gen {self.predecessor_id} → Gen {self.successor_id}"
