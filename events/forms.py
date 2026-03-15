@@ -2,20 +2,20 @@ from django import forms
 from django.forms import inlineformset_factory
 
 from events.models import (
+    Chain,
     CodeTransition,
     CodeType,
     Discontinuation,
     Event,
     Introduction,
-    Pipo,
     TransitionType,
 )
-from lifecycles.models import Generation
+from families.models import Generation
 
 
 def _active_code_choices(code_type=None):
     """Return choices of currently active codes (end_date = 9999-12-31)."""
-    qs = Generation.objects.filter(end_date__year=9999)
+    qs = Generation.objects.filter(discontinuation__isnull=True)
     if code_type:
         qs = qs.filter(product_family__code_type=code_type)
     codes = sorted(qs.values_list("code", flat=True).distinct())
@@ -25,20 +25,20 @@ def _active_code_choices(code_type=None):
 class EventForm(forms.ModelForm):
     class Meta:
         model = Event
-        fields = ["date", "iso_country_code", "comment"]
+        fields = ["iso_country_code", "comment"]
         widgets = {
-            "date": forms.DateInput(attrs={"type": "date"}),
             "comment": forms.Textarea(attrs={"rows": 2}),
         }
 
 
 class CodeTransitionForm(forms.ModelForm):
-    pi_code = forms.IntegerField(required=False, help_text="Phase-In code")
-    po_code = forms.TypedChoiceField(
-        required=False, coerce=int, empty_value=None,
-        help_text="Phase-Out code (active codes only)",
+    introduction_code = forms.IntegerField(required=False, help_text="Introduction code")
+    discontinuation_code = forms.TypedChoiceField(
+        required=False,
+        coerce=int,
+        empty_value=None,
+        help_text="Discontinuation code (active codes only)",
     )
-    discontinue_po = forms.BooleanField(required=False, initial=True, help_text="Discontinue PO code")
 
     class Meta:
         model = CodeTransition
@@ -46,27 +46,33 @@ class CodeTransitionForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["po_code"].choices = _active_code_choices()
+        field = self.fields["discontinuation_code"]
+        assert isinstance(field, forms.TypedChoiceField)
+        field.choices = _active_code_choices()
 
     def clean(self):
         cleaned = super().clean()
+        if not cleaned:
+            return cleaned
         t = cleaned.get("type")
         if t == TransitionType.INTRODUCTION:
-            if not cleaned.get("pi_code"):
-                raise forms.ValidationError("Introduction requires a PI code.")
+            if not cleaned.get("introduction_code"):
+                raise forms.ValidationError("Introduction requires an introduction code.")
         elif t == TransitionType.DISCONTINUATION:
-            if not cleaned.get("po_code"):
-                raise forms.ValidationError("Discontinuation requires a PO code.")
-        elif t == TransitionType.PIPO:
-            if not cleaned.get("pi_code") or not cleaned.get("po_code"):
-                raise forms.ValidationError("PIPO requires both PI and PO codes.")
+            if not cleaned.get("discontinuation_code"):
+                raise forms.ValidationError("Discontinuation requires a discontinuation code.")
+        elif t == TransitionType.chain:
+            if not cleaned.get("introduction_code") or not cleaned.get("discontinuation_code"):
+                raise forms.ValidationError(
+                    "chain requires both introduction and discontinuation codes."
+                )
         return cleaned
 
     def _is_active_code(self, code, code_type):
         return Generation.objects.filter(
             code=code,
             product_family__code_type=code_type,
-            end_date__year=9999,
+            discontinuation__isnull=True,
         ).exists()
 
     def save(self, commit=True):
@@ -79,34 +85,28 @@ class CodeTransitionForm(forms.ModelForm):
         # Delete any existing subtypes when editing
         Introduction.objects.filter(code_transition=ct).delete()
         Discontinuation.objects.filter(code_transition=ct).delete()
-        Pipo.objects.filter(code_transition=ct).delete()
+        Chain.objects.filter(code_transition=ct).delete()
 
         if ct.type == TransitionType.INTRODUCTION:
-            intro = Introduction(code_transition=ct, pi_code=self.cleaned_data["pi_code"])
+            intro = Introduction(
+                code_transition=ct, introduction_code=self.cleaned_data["introduction_code"]
+            )
             intro.full_clean()
             intro.save()
         elif ct.type == TransitionType.DISCONTINUATION:
-            disco = Discontinuation(code_transition=ct, po_code=self.cleaned_data["po_code"])
+            disco = Discontinuation(
+                code_transition=ct, discontinuation_code=self.cleaned_data["discontinuation_code"]
+            )
             disco.full_clean()
             disco.save()
-        elif ct.type == TransitionType.PIPO:
-            pipo = Pipo(
+        elif ct.type == TransitionType.chain:
+            ch = Chain(
                 code_transition=ct,
-                pi_code=self.cleaned_data["pi_code"],
-                po_code=self.cleaned_data["po_code"],
+                introduction_code=self.cleaned_data["introduction_code"],
+                discontinuation_code=self.cleaned_data["discontinuation_code"],
             )
-            pipo.full_clean()
-            pipo.save()
-            if self.cleaned_data.get("discontinue_po", False):
-                disco_ct = CodeTransition.objects.create(
-                    event=ct.event,
-                    code_type=ct.code_type,
-                    type=TransitionType.DISCONTINUATION,
-                )
-                Discontinuation.objects.create(
-                    code_transition=disco_ct,
-                    po_code=self.cleaned_data["po_code"],
-                )
+            ch.full_clean()
+            ch.save()
 
 
 CodeTransitionFormSet = inlineformset_factory(
@@ -121,8 +121,11 @@ CodeTransitionFormSet = inlineformset_factory(
 class TransitionForm(forms.Form):
     """Standalone form for the frontend two-step flow (one transition per event)."""
 
+    date = forms.DateField(
+        widget=forms.DateInput(attrs={"type": "date", "class": "border rounded px-3 py-2 w-full"}),
+    )
     type = forms.ChoiceField(
-        choices=[("" , "---")] + list(TransitionType.choices),
+        choices=[("", "---")] + list(TransitionType.choices),
         widget=forms.Select(attrs={"class": "border rounded px-3 py-2 w-full"}),
     )
     code_type = forms.ModelChoiceField(
@@ -130,49 +133,51 @@ class TransitionForm(forms.Form):
         empty_label="---",
         widget=forms.Select(attrs={"class": "border rounded px-3 py-2 w-full"}),
     )
-    pi_code = forms.IntegerField(required=False)
-    po_code = forms.IntegerField(required=False)
-    proxy_introduction = forms.BooleanField(required=False, initial=False)
-    proxy_po = forms.BooleanField(required=False, initial=False)
-    discontinue_po = forms.BooleanField(required=False, initial=True)
+    introduction_code = forms.IntegerField(required=False)
+    discontinuation_code = forms.IntegerField(required=False)
 
     def clean(self):
         cleaned = super().clean()
+        if not cleaned:
+            return cleaned
         t = cleaned.get("type")
         if t == TransitionType.INTRODUCTION:
-            if not cleaned.get("pi_code"):
-                raise forms.ValidationError("Introduction requires a PI code.")
+            if not cleaned.get("introduction_code"):
+                raise forms.ValidationError("Introduction requires an introduction code.")
         elif t == TransitionType.DISCONTINUATION:
-            if not cleaned.get("po_code"):
-                raise forms.ValidationError("Discontinuation requires a PO code.")
-        elif t == TransitionType.PIPO:
-            if not cleaned.get("pi_code") or not cleaned.get("po_code"):
-                raise forms.ValidationError("PIPO requires both PI and PO codes.")
+            if not cleaned.get("discontinuation_code"):
+                raise forms.ValidationError("Discontinuation requires a discontinuation code.")
+        elif t == TransitionType.chain:
+            if not cleaned.get("introduction_code") or not cleaned.get("discontinuation_code"):
+                raise forms.ValidationError(
+                    "chain requires both introduction and discontinuation codes."
+                )
         return cleaned
 
     def _is_active_code(self, code, code_type):
         return Generation.objects.filter(
             code=code,
             product_family__code_type=code_type,
-            end_date__year=9999,
+            discontinuation__isnull=True,
         ).exists()
 
     def save(self, event, existing_transition=None):
-        from events.services import create_transition
+        from events.services import save_event_transitions
 
         data = self.cleaned_data
 
         if existing_transition:
-            # Delete old transition (and subtypes via cascade) before re-creating
             existing_transition.delete()
 
-        return create_transition(
+        save_event_transitions(
             event,
-            type=data["type"],
-            code_type_id=data["code_type"].pk,
-            pi_code=data.get("pi_code"),
-            po_code=data.get("po_code"),
-            proxy_introduction=data.get("proxy_introduction", False),
-            proxy_po=data.get("proxy_po", False),
-            discontinue_po=data.get("discontinue_po", False),
+            [
+                {
+                    "date": data["date"],
+                    "type": data["type"],
+                    "code_type_id": data["code_type"].pk,
+                    "introduction_code": data.get("introduction_code"),
+                    "discontinuation_code": data.get("discontinuation_code"),
+                }
+            ],
         )

@@ -1,10 +1,15 @@
-from rest_framework import viewsets
-from rest_framework.decorators import action
-from rest_framework.response import Response
+import datetime
 
-from events.models import CodeType, Event
-from events.serializers import CodeTypeSerializer, EventSerializer
-from lifecycles.engine import recompute_lifecycles
+from django.db import transaction
+from rest_framework import viewsets
+
+from events.models import CodeState, CodeType, Country, Event, TransitionType
+from events.serializers import CodeTypeSerializer, CountrySerializer, EventSerializer
+
+
+class CountryViewSet(viewsets.ModelViewSet):
+    queryset = Country.objects.all()
+    serializer_class = CountrySerializer
 
 
 class CodeTypeViewSet(viewsets.ModelViewSet):
@@ -17,7 +22,7 @@ class EventViewSet(viewsets.ModelViewSet):
         "transitions__code_type",
         "transitions__introduction",
         "transitions__discontinuation",
-        "transitions__pipo",
+        "transitions__chain",
     )
     serializer_class = EventSerializer
 
@@ -29,10 +34,10 @@ class EventViewSet(viewsets.ModelViewSet):
         if country:
             qs = qs.filter(iso_country_code=country)
         if date_from:
-            qs = qs.filter(date__gte=date_from)
+            qs = qs.filter(transitions__date__gte=date_from)
         if date_to:
-            qs = qs.filter(date__lte=date_to)
-        return qs
+            qs = qs.filter(transitions__date__lte=date_to)
+        return qs.distinct()
 
     def perform_create(self, serializer):
         serializer.save(
@@ -44,5 +49,31 @@ class EventViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         country = instance.iso_country_code
-        instance.delete()
-        recompute_lifecycles(iso_country_code=country)
+        country_code = country.pk if hasattr(country, "pk") else country
+
+        with transaction.atomic():
+            # Rollback CodeState for this event's transitions
+            for ct in instance.transitions.select_related(
+                "introduction", "discontinuation", "chain"
+            ):
+                if ct.type == TransitionType.INTRODUCTION:
+                    CodeState.objects.filter(
+                        iso_country_code=country_code,
+                        code_type_id=ct.code_type_id,
+                        code=ct.introduction.introduction_code,
+                        start_date=ct.date,
+                    ).delete()
+                elif ct.type == TransitionType.DISCONTINUATION:
+                    CodeState.objects.filter(
+                        iso_country_code=country_code,
+                        code_type_id=ct.code_type_id,
+                        code=ct.discontinuation.discontinuation_code,
+                        status=CodeState.Status.DISCONTINUED,
+                        end_date=ct.date,
+                    ).update(
+                        status=CodeState.Status.ACTIVE,
+                        end_date=datetime.date(9999, 12, 31),
+                    )
+
+            instance.delete()
+            Country.objects.filter(pk=country_code).update(families_dirty=True)

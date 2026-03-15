@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-API stress test for PIPO.
+API stress test for chain.
 
-Creates lifecycles via the REST API with at least 3 products each,
+Creates familys via the REST API with at least 3 products each,
 covering chain, one-to-many, many-to-one, and long-chain scenarios,
 plus deliberate failure cases.
 
@@ -18,6 +18,7 @@ import random
 import time
 from datetime import date, timedelta
 from pathlib import Path
+from typing import TextIO
 
 import requests
 
@@ -31,14 +32,14 @@ DEFAULT_CODE_TYPE_ID = "NTN"
 # ── Runtime globals (set from CLI args in main) ───────────────────────
 BASE_URL = DEFAULT_BASE_URL
 LOG_PATH = Path(DEFAULT_LOG_PATH)
-TOTAL_LIFECYCLES = DEFAULT_TOTAL
+TOTAL_FAMILIES = DEFAULT_TOTAL
 COUNTRIES = list(DEFAULT_COUNTRIES)
 CODE_TYPE_ID = DEFAULT_CODE_TYPE_ID
 
 # ── State ─────────────────────────────────────────────────────────────
 _code_seq = 1_000_000
 _session = requests.Session()
-_log_fh = None
+_log_fh: TextIO | None = None
 stats = {"success": 0, "expected_fail": 0, "unexpected_fail": 0}
 
 
@@ -55,12 +56,12 @@ def rand_date(y_lo=2020, y_hi=2025):
 
 def rand_date_sequence(n, y_lo=2020, y_hi=2025):
     """Return a sorted list of *n* distinct random dates."""
-    dates = set()
+    result: set[date] = set()
     start = date(y_lo, 1, 1)
     span = (date(y_hi, 12, 31) - start).days
-    while len(dates) < n:
-        dates.add(start + timedelta(days=random.randint(0, span)))
-    return sorted(dates)
+    while len(result) < n:
+        result.add(start + timedelta(days=random.randint(0, span)))
+    return sorted(result)
 
 
 # ── Logging ───────────────────────────────────────────────────────────
@@ -78,6 +79,7 @@ def _log(label, method, url, payload, resp):
         "status": resp.status_code,
         "response": body,
     }
+    assert _log_fh is not None
     _log_fh.write(json.dumps(entry, default=str) + "\n")
     _log_fh.flush()
 
@@ -118,6 +120,13 @@ def get(label, path, params=None):
 
 # ── Setup ─────────────────────────────────────────────────────────────
 def setup():
+    # Ensure countries exist
+    for code in COUNTRIES:
+        r = get(f"check_country_{code}", f"/api/countries/{code}/")
+        if r.status_code == 404:
+            post(f"create_country_{code}", "/api/countries/", {"code": code, "name": code})
+    print(f"Countries ready: {COUNTRIES}")
+
     r = get("check_code_type", f"/api/code-types/{CODE_TYPE_ID}/")
     if r.status_code == 404:
         post("create_code_type", "/api/code-types/", {"id": CODE_TYPE_ID, "type": "National"})
@@ -156,11 +165,27 @@ def scenario_chain3():
     """A → B → C  (simple chain of 3)"""
     a, b, c = next_code(), next_code(), next_code()
     return [
-        [{"code_type_id": CODE_TYPE_ID, "type": "INTRO", "pi_code": a}],
-        [{"code_type_id": CODE_TYPE_ID, "type": "PIPO", "pi_code": b, "po_code": a,
-          "proxy_introduction": True, "discontinue_po": True}],
-        [{"code_type_id": CODE_TYPE_ID, "type": "PIPO", "pi_code": c, "po_code": b,
-          "proxy_introduction": True, "discontinue_po": True}],
+        [{"code_type_id": CODE_TYPE_ID, "type": "INTRO", "introduction_code": a}],
+        [
+            {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "introduction_code": b},
+            {
+                "code_type_id": CODE_TYPE_ID,
+                "type": "chain",
+                "introduction_code": b,
+                "discontinuation_code": a,
+            },
+            {"code_type_id": CODE_TYPE_ID, "type": "DISCONT", "discontinuation_code": a},
+        ],
+        [
+            {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "introduction_code": c},
+            {
+                "code_type_id": CODE_TYPE_ID,
+                "type": "chain",
+                "introduction_code": c,
+                "discontinuation_code": b,
+            },
+            {"code_type_id": CODE_TYPE_ID, "type": "DISCONT", "discontinuation_code": b},
+        ],
     ], "chain3"
 
 
@@ -168,13 +193,37 @@ def scenario_chain4():
     """A → B → C → D  (longer chain of 4)"""
     a, b, c, d = next_code(), next_code(), next_code(), next_code()
     return [
-        [{"code_type_id": CODE_TYPE_ID, "type": "INTRO", "pi_code": a}],
-        [{"code_type_id": CODE_TYPE_ID, "type": "PIPO", "pi_code": b, "po_code": a,
-          "proxy_introduction": True, "discontinue_po": True}],
-        [{"code_type_id": CODE_TYPE_ID, "type": "PIPO", "pi_code": c, "po_code": b,
-          "proxy_introduction": True, "discontinue_po": True}],
-        [{"code_type_id": CODE_TYPE_ID, "type": "PIPO", "pi_code": d, "po_code": c,
-          "proxy_introduction": True, "discontinue_po": True}],
+        [{"code_type_id": CODE_TYPE_ID, "type": "INTRO", "introduction_code": a}],
+        [
+            {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "introduction_code": b},
+            {
+                "code_type_id": CODE_TYPE_ID,
+                "type": "chain",
+                "introduction_code": b,
+                "discontinuation_code": a,
+            },
+            {"code_type_id": CODE_TYPE_ID, "type": "DISCONT", "discontinuation_code": a},
+        ],
+        [
+            {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "introduction_code": c},
+            {
+                "code_type_id": CODE_TYPE_ID,
+                "type": "chain",
+                "introduction_code": c,
+                "discontinuation_code": b,
+            },
+            {"code_type_id": CODE_TYPE_ID, "type": "DISCONT", "discontinuation_code": b},
+        ],
+        [
+            {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "introduction_code": d},
+            {
+                "code_type_id": CODE_TYPE_ID,
+                "type": "chain",
+                "introduction_code": d,
+                "discontinuation_code": c,
+            },
+            {"code_type_id": CODE_TYPE_ID, "type": "DISCONT", "discontinuation_code": c},
+        ],
     ], "chain4"
 
 
@@ -182,13 +231,28 @@ def scenario_one_to_many():
     """A → {B, C}  (one code splits into two)"""
     a, b, c = next_code(), next_code(), next_code()
     return [
-        [{"code_type_id": CODE_TYPE_ID, "type": "INTRO", "pi_code": a}],
-        # First PIPO keeps A alive (discontinue_po=False)
-        [{"code_type_id": CODE_TYPE_ID, "type": "PIPO", "pi_code": b, "po_code": a,
-          "proxy_introduction": True, "discontinue_po": False}],
-        # Second PIPO discontinues A
-        [{"code_type_id": CODE_TYPE_ID, "type": "PIPO", "pi_code": c, "po_code": a,
-          "proxy_introduction": True, "discontinue_po": True}],
+        [{"code_type_id": CODE_TYPE_ID, "type": "INTRO", "introduction_code": a}],
+        # First chain keeps A alive
+        [
+            {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "introduction_code": b},
+            {
+                "code_type_id": CODE_TYPE_ID,
+                "type": "chain",
+                "introduction_code": b,
+                "discontinuation_code": a,
+            },
+        ],
+        # Second chain discontinues A
+        [
+            {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "introduction_code": c},
+            {
+                "code_type_id": CODE_TYPE_ID,
+                "type": "chain",
+                "introduction_code": c,
+                "discontinuation_code": a,
+            },
+            {"code_type_id": CODE_TYPE_ID, "type": "DISCONT", "discontinuation_code": a},
+        ],
     ], "one_to_many"
 
 
@@ -197,14 +261,29 @@ def scenario_many_to_one():
     a, b, c = next_code(), next_code(), next_code()
     return [
         # Introduce A and B in separate events
-        [{"code_type_id": CODE_TYPE_ID, "type": "INTRO", "pi_code": a}],
-        [{"code_type_id": CODE_TYPE_ID, "type": "INTRO", "pi_code": b}],
+        [{"code_type_id": CODE_TYPE_ID, "type": "INTRO", "introduction_code": a}],
+        [{"code_type_id": CODE_TYPE_ID, "type": "INTRO", "introduction_code": b}],
         # A merges into new code C
-        [{"code_type_id": CODE_TYPE_ID, "type": "PIPO", "pi_code": c, "po_code": a,
-          "proxy_introduction": True, "discontinue_po": True}],
+        [
+            {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "introduction_code": c},
+            {
+                "code_type_id": CODE_TYPE_ID,
+                "type": "chain",
+                "introduction_code": c,
+                "discontinuation_code": a,
+            },
+            {"code_type_id": CODE_TYPE_ID, "type": "DISCONT", "discontinuation_code": a},
+        ],
         # B also merges into C (C already active)
-        [{"code_type_id": CODE_TYPE_ID, "type": "PIPO", "pi_code": c, "po_code": b,
-          "proxy_introduction": False, "discontinue_po": True}],
+        [
+            {
+                "code_type_id": CODE_TYPE_ID,
+                "type": "chain",
+                "introduction_code": c,
+                "discontinuation_code": b,
+            },
+            {"code_type_id": CODE_TYPE_ID, "type": "DISCONT", "discontinuation_code": b},
+        ],
     ], "many_to_one"
 
 
@@ -226,33 +305,37 @@ def pick_scenario():
     return _SCENARIOS[-1][1]()
 
 
-# ── Main lifecycle creation loop ──────────────────────────────────────
-def create_lifecycles():
-    print(f"\nCreating {TOTAL_LIFECYCLES} lifecycles ...")
+# ── Main family creation loop ──────────────────────────────────────
+def create_families():
+    print(f"\nCreating {TOTAL_FAMILIES} familys ...")
     t0 = time.time()
     api_calls = 0
-    for i in range(1, TOTAL_LIFECYCLES + 1):
+    for i in range(1, TOTAL_FAMILIES + 1):
         country = COUNTRIES[(i - 1) % len(COUNTRIES)]
         event_groups, tag = pick_scenario()
         dates = rand_date_sequence(len(event_groups))
         for step, (transitions, d) in enumerate(zip(event_groups, dates), 1):
+            # Add date to each transition
+            for t in transitions:
+                t["date"] = str(d)
             payload = {
-                "date": str(d),
                 "iso_country_code": country,
                 "comment": f"auto-{tag}-{i}-step{step}",
                 "transitions_write": transitions,
             }
-            r = post(f"lifecycle_{i}_{tag}_s{step}", "/api/events/", payload)
+            r = post(f"family_{i}_{tag}_s{step}", "/api/events/", payload)
             api_calls += 1
             if r.status_code not in (200, 201):
-                print(f"  WARNING lifecycle {i} ({tag}) step {step}: HTTP {r.status_code}")
+                print(f"  WARNING family {i} ({tag}) step {step}: HTTP {r.status_code}")
         if i % 500 == 0:
             elapsed = time.time() - t0
             rate = i / elapsed
-            print(f"  {i:>6}/{TOTAL_LIFECYCLES}  ({rate:.1f} lc/s)")
+            print(f"  {i:>6}/{TOTAL_FAMILIES}  ({rate:.1f} lc/s)")
     elapsed = time.time() - t0
-    print(f"Lifecycles done: {TOTAL_LIFECYCLES} in {elapsed:.1f}s "
-          f"({TOTAL_LIFECYCLES / elapsed:.1f} lc/s, {api_calls} API calls)\n")
+    print(
+        f"Lifecycles done: {TOTAL_FAMILIES} in {elapsed:.1f}s "
+        f"({TOTAL_FAMILIES / elapsed:.1f} lc/s, {api_calls} API calls)\n"
+    )
 
 
 # ── Failure cases ─────────────────────────────────────────────────────
@@ -261,7 +344,7 @@ def run_failure_cases():
     country = "PL"
 
     # Use a separate code range so failure setup codes don't collide
-    # with lifecycle codes.
+    # with family codes.
     global _code_seq
     saved_seq = _code_seq
     _code_seq = 900_000_000
@@ -273,183 +356,366 @@ def run_failure_cases():
 
     # ── 1. Double introduction ────────────────────────────────────────
     code_x = next_code()
-    post("fail_setup_intro_x", "/api/events/", {
-        "date": "2025-06-01", "iso_country_code": country,
-        "transitions_write": [
-            {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "pi_code": code_x},
-        ],
-    })
-    r = post("fail_double_intro", "/api/events/", {
-        "date": "2025-06-15", "iso_country_code": country,
-        "transitions_write": [
-            {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "pi_code": code_x},
-        ],
-    }, expect_ok=False)
+    post(
+        "fail_setup_intro_x",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {
+                    "code_type_id": CODE_TYPE_ID,
+                    "type": "INTRO",
+                    "introduction_code": code_x,
+                    "date": "2025-06-01",
+                },
+            ],
+        },
+    )
+    r = post(
+        "fail_double_intro",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {
+                    "code_type_id": CODE_TYPE_ID,
+                    "type": "INTRO",
+                    "introduction_code": code_x,
+                    "date": "2025-06-15",
+                },
+            ],
+        },
+        expect_ok=False,
+    )
     _report("Double introduction", r)
 
     # ── 1b. Overlapping generation (intro at earlier date) ────────────
     code_overlap = next_code()
-    post("fail_setup_intro_overlap", "/api/events/", {
-        "date": "2025-06-01", "iso_country_code": country,
-        "transitions_write": [
-            {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "pi_code": code_overlap},
-        ],
-    })
-    post("fail_setup_discont_overlap", "/api/events/", {
-        "date": "2025-06-10", "iso_country_code": country,
-        "transitions_write": [
-            {"code_type_id": CODE_TYPE_ID, "type": "DISCONT", "po_code": code_overlap},
-        ],
-    })
-    r = post("fail_overlap_intro", "/api/events/", {
-        "date": "2025-05-01", "iso_country_code": country,
-        "transitions_write": [
-            {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "pi_code": code_overlap},
-        ],
-    }, expect_ok=False)
+    post(
+        "fail_setup_intro_overlap",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {
+                    "code_type_id": CODE_TYPE_ID,
+                    "type": "INTRO",
+                    "introduction_code": code_overlap,
+                    "date": "2025-06-01",
+                },
+            ],
+        },
+    )
+    post(
+        "fail_setup_discont_overlap",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {
+                    "code_type_id": CODE_TYPE_ID,
+                    "type": "DISCONT",
+                    "discontinuation_code": code_overlap,
+                    "date": "2025-06-10",
+                },
+            ],
+        },
+    )
+    r = post(
+        "fail_overlap_intro",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {
+                    "code_type_id": CODE_TYPE_ID,
+                    "type": "INTRO",
+                    "introduction_code": code_overlap,
+                    "date": "2025-05-01",
+                },
+            ],
+        },
+        expect_ok=False,
+    )
     _report("Overlapping generation", r)
 
     # ── 2. Double discontinuation ─────────────────────────────────────
     code_y = next_code()
-    post("fail_setup_intro_y", "/api/events/", {
-        "date": "2025-07-01", "iso_country_code": country,
-        "transitions_write": [
-            {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "pi_code": code_y},
-        ],
-    })
-    post("fail_setup_discont_y", "/api/events/", {
-        "date": "2025-07-15", "iso_country_code": country,
-        "transitions_write": [
-            {"code_type_id": CODE_TYPE_ID, "type": "DISCONT", "po_code": code_y},
-        ],
-    })
-    r = post("fail_double_discont", "/api/events/", {
-        "date": "2025-07-20", "iso_country_code": country,
-        "transitions_write": [
-            {"code_type_id": CODE_TYPE_ID, "type": "DISCONT", "po_code": code_y},
-        ],
-    }, expect_ok=False)
+    post(
+        "fail_setup_intro_y",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {
+                    "code_type_id": CODE_TYPE_ID,
+                    "type": "INTRO",
+                    "introduction_code": code_y,
+                    "date": "2025-07-01",
+                },
+            ],
+        },
+    )
+    post(
+        "fail_setup_discont_y",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {
+                    "code_type_id": CODE_TYPE_ID,
+                    "type": "DISCONT",
+                    "discontinuation_code": code_y,
+                    "date": "2025-07-15",
+                },
+            ],
+        },
+    )
+    r = post(
+        "fail_double_discont",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {
+                    "code_type_id": CODE_TYPE_ID,
+                    "type": "DISCONT",
+                    "discontinuation_code": code_y,
+                    "date": "2025-07-20",
+                },
+            ],
+        },
+        expect_ok=False,
+    )
     _report("Double discontinuation", r)
 
-    # ── 3. PIPO with non-existing PO code ─────────────────────────────
+    # ── 3. chain with non-existing PO code ─────────────────────────────
     code_pi = next_code()
     code_phantom_po = next_code()  # never introduced
-    post("fail_setup_intro_pi", "/api/events/", {
-        "date": "2025-08-01", "iso_country_code": country,
-        "transitions_write": [
-            {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "pi_code": code_pi},
-        ],
-    })
-    r = post("fail_pipo_bad_po", "/api/events/", {
-        "date": "2025-08-15", "iso_country_code": country,
-        "transitions_write": [{
-            "code_type_id": CODE_TYPE_ID, "type": "PIPO",
-            "pi_code": code_pi, "po_code": code_phantom_po,
-            "proxy_introduction": False, "discontinue_po": True,
-        }],
-    }, expect_ok=False)
-    _report("PIPO non-existing PO code", r)
+    post(
+        "fail_setup_intro_pi",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {
+                    "code_type_id": CODE_TYPE_ID,
+                    "type": "INTRO",
+                    "introduction_code": code_pi,
+                    "date": "2025-08-01",
+                },
+            ],
+        },
+    )
+    r = post(
+        "fail_chain_bad_po",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {
+                    "code_type_id": CODE_TYPE_ID,
+                    "type": "chain",
+                    "introduction_code": code_pi,
+                    "discontinuation_code": code_phantom_po,
+                    "date": "2025-08-15",
+                }
+            ],
+        },
+        expect_ok=False,
+    )
+    _report("chain non-existing PO code", r)
 
-    # ── 4. PIPO with non-existing PI code (no proxy) ──────────────────
+    # ── 4. chain with non-existing PI code (no proxy) ──────────────────
     code_po = next_code()
     code_phantom_pi = next_code()  # never introduced
-    post("fail_setup_intro_po", "/api/events/", {
-        "date": "2025-09-01", "iso_country_code": country,
-        "transitions_write": [
-            {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "pi_code": code_po},
-        ],
-    })
-    r = post("fail_pipo_bad_pi", "/api/events/", {
-        "date": "2025-09-15", "iso_country_code": country,
-        "transitions_write": [{
-            "code_type_id": CODE_TYPE_ID, "type": "PIPO",
-            "pi_code": code_phantom_pi, "po_code": code_po,
-            "proxy_introduction": False, "discontinue_po": True,
-        }],
-    }, expect_ok=False)
-    _report("PIPO non-existing PI code", r)
+    post(
+        "fail_setup_intro_po",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {
+                    "code_type_id": CODE_TYPE_ID,
+                    "type": "INTRO",
+                    "introduction_code": code_po,
+                    "date": "2025-09-01",
+                },
+            ],
+        },
+    )
+    r = post(
+        "fail_chain_bad_pi",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {
+                    "code_type_id": CODE_TYPE_ID,
+                    "type": "chain",
+                    "introduction_code": code_phantom_pi,
+                    "discontinuation_code": code_po,
+                    "date": "2025-09-15",
+                }
+            ],
+        },
+        expect_ok=False,
+    )
+    _report("chain non-existing PI code", r)
 
     # ── 5. Discontinuation on never-introduced code ───────────────────
     code_phantom = next_code()
-    r = post("fail_discont_phantom", "/api/events/", {
-        "date": "2025-10-01", "iso_country_code": country,
-        "transitions_write": [
-            {"code_type_id": CODE_TYPE_ID, "type": "DISCONT", "po_code": code_phantom},
-        ],
-    }, expect_ok=False)
+    r = post(
+        "fail_discont_phantom",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {
+                    "code_type_id": CODE_TYPE_ID,
+                    "type": "DISCONT",
+                    "discontinuation_code": code_phantom,
+                    "date": "2025-10-01",
+                },
+            ],
+        },
+        expect_ok=False,
+    )
     _report("Discont never-introduced code", r)
 
-    # ── 6. PIPO missing po_code field ─────────────────────────────────
-    r = post("fail_pipo_missing_po", "/api/events/", {
-        "date": "2025-11-01", "iso_country_code": country,
-        "transitions_write": [{
-            "code_type_id": CODE_TYPE_ID, "type": "PIPO",
-            "pi_code": next_code(),
-        }],
-    }, expect_ok=False)
-    _report("PIPO missing po_code", r)
+    # ── 6. chain missing discontinuation_code field ─────────────────────────────────
+    r = post(
+        "fail_chain_missing_po",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {
+                    "code_type_id": CODE_TYPE_ID,
+                    "type": "chain",
+                    "introduction_code": next_code(),
+                    "date": "2025-11-01",
+                }
+            ],
+        },
+        expect_ok=False,
+    )
+    _report("chain missing discontinuation_code", r)
 
-    # ── 7. Introduction missing pi_code field ─────────────────────────
-    r = post("fail_intro_no_pi", "/api/events/", {
-        "date": "2025-11-15", "iso_country_code": country,
-        "transitions_write": [
-            {"code_type_id": CODE_TYPE_ID, "type": "INTRO"},
-        ],
-    }, expect_ok=False)
-    _report("Intro missing pi_code", r)
+    # ── 7. Introduction missing introduction_code field ─────────────────────────
+    r = post(
+        "fail_intro_no_pi",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "date": "2025-11-15"},
+            ],
+        },
+        expect_ok=False,
+    )
+    _report("Intro missing introduction_code", r)
 
-    # ── 8. Discontinuation missing po_code field ──────────────────────
-    r = post("fail_discont_no_po", "/api/events/", {
-        "date": "2025-11-20", "iso_country_code": country,
-        "transitions_write": [
-            {"code_type_id": CODE_TYPE_ID, "type": "DISCONT"},
-        ],
-    }, expect_ok=False)
-    _report("Discont missing po_code", r)
+    # ── 8. Discontinuation missing discontinuation_code field ──────────────────────
+    r = post(
+        "fail_discont_no_po",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {"code_type_id": CODE_TYPE_ID, "type": "DISCONT", "date": "2025-11-20"},
+            ],
+        },
+        expect_ok=False,
+    )
+    _report("Discont missing discontinuation_code", r)
 
-    # ── 9. PIPO where pi_code == po_code ──────────────────────────────
+    # ── 9. chain where introduction_code == discontinuation_code ──────────────────────────────
     code_same = next_code()
-    post("fail_setup_intro_same", "/api/events/", {
-        "date": "2025-12-01", "iso_country_code": country,
-        "transitions_write": [
-            {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "pi_code": code_same},
-        ],
-    })
-    r = post("fail_pipo_same_codes", "/api/events/", {
-        "date": "2025-12-10", "iso_country_code": country,
-        "transitions_write": [{
-            "code_type_id": CODE_TYPE_ID, "type": "PIPO",
-            "pi_code": code_same, "po_code": code_same,
-            "proxy_introduction": False, "discontinue_po": True,
-        }],
-    }, expect_ok=False)
-    _report("PIPO pi_code == po_code", r)
+    post(
+        "fail_setup_intro_same",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {
+                    "code_type_id": CODE_TYPE_ID,
+                    "type": "INTRO",
+                    "introduction_code": code_same,
+                    "date": "2025-12-01",
+                },
+            ],
+        },
+    )
+    r = post(
+        "fail_chain_same_codes",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {
+                    "code_type_id": CODE_TYPE_ID,
+                    "type": "chain",
+                    "introduction_code": code_same,
+                    "discontinuation_code": code_same,
+                    "date": "2025-12-10",
+                }
+            ],
+        },
+        expect_ok=False,
+    )
+    _report("chain introduction_code == discontinuation_code", r)
 
     # ── 10. Invalid country code ──────────────────────────────────────
-    r = post("fail_bad_country", "/api/events/", {
-        "date": "2025-12-15", "iso_country_code": "ZZ",
-        "transitions_write": [
-            {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "pi_code": next_code()},
-        ],
-    }, expect_ok=False)
+    r = post(
+        "fail_bad_country",
+        "/api/events/",
+        {
+            "iso_country_code": "ZZ",
+            "transitions_write": [
+                {
+                    "code_type_id": CODE_TYPE_ID,
+                    "type": "INTRO",
+                    "introduction_code": next_code(),
+                    "date": "2025-12-15",
+                },
+            ],
+        },
+        expect_ok=False,
+    )
     _report("Invalid country code (ZZ)", r)
 
     # ── 11. Invalid code_type ─────────────────────────────────────────
-    r = post("fail_bad_code_type", "/api/events/", {
-        "date": "2025-12-20", "iso_country_code": country,
-        "transitions_write": [
-            {"code_type_id": "NOPE", "type": "INTRO", "pi_code": next_code()},
-        ],
-    }, expect_ok=False)
+    r = post(
+        "fail_bad_code_type",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {
+                    "code_type_id": "NOPE",
+                    "type": "INTRO",
+                    "introduction_code": next_code(),
+                    "date": "2025-12-20",
+                },
+            ],
+        },
+        expect_ok=False,
+    )
     _report("Invalid code_type", r)
 
     # ── 12. Missing date ──────────────────────────────────────────────
-    r = post("fail_no_date", "/api/events/", {
-        "iso_country_code": country,
-        "transitions_write": [
-            {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "pi_code": next_code()},
-        ],
-    }, expect_ok=False)
+    r = post(
+        "fail_no_date",
+        "/api/events/",
+        {
+            "iso_country_code": country,
+            "transitions_write": [
+                {"code_type_id": CODE_TYPE_ID, "type": "INTRO", "introduction_code": next_code()},
+            ],
+        },
+        expect_ok=False,
+    )
     _report("Missing date", r)
 
     _code_seq = saved_seq
@@ -458,7 +724,7 @@ def run_failure_cases():
 
 # ── Verification spot-checks ─────────────────────────────────────────
 def run_spot_checks():
-    """Resolve a few codes via the API to confirm lifecycles were built."""
+    """Resolve a few codes via the API to confirm familys were built."""
     print("--- Spot-check: resolve API ---")
     # Grab a few recently created events and verify their codes resolve
     r = get("spot_list_events", "/api/events/", {"page_size": 5})
@@ -470,17 +736,23 @@ def run_spot_checks():
     for ev in events[:5]:
         for tr in ev.get("transitions", []):
             intro = tr.get("introduction")
-            if intro and intro.get("pi_code"):
-                code = intro["pi_code"]
+            if intro and intro.get("introduction_code"):
+                code = intro["introduction_code"]
                 ct_id = tr["code_type_id"]
                 country = ev["iso_country_code"]
-                ev_date = ev["date"]
-                rr = get(f"spot_resolve_{code}", "/api/resolve/", {
-                    "code": code, "code_type": ct_id,
-                    "country": country, "date": ev_date,
-                })
+                tr_date = tr["date"]
+                rr = get(
+                    f"spot_resolve_{code}",
+                    "/api/resolve/",
+                    {
+                        "code": code,
+                        "code_type": ct_id,
+                        "country": country,
+                        "date": tr_date,
+                    },
+                )
                 status_str = "OK" if rr.status_code == 200 else f"HTTP {rr.status_code}"
-                print(f"  code={code} country={country} date={ev_date} → {status_str}")
+                print(f"  code={code} country={country} date={tr_date} → {status_str}")
                 checked += 1
                 if checked >= 5:
                     break
@@ -494,55 +766,63 @@ def run_spot_checks():
 # ── Entry point ───────────────────────────────────────────────────────
 def parse_args(argv=None):
     p = argparse.ArgumentParser(
-        description="PIPO API stress test — creates lifecycles and runs failure cases.",
+        description="chain API stress test — creates familys and runs failure cases.",
     )
     p.add_argument(
-        "--base-url", default=DEFAULT_BASE_URL,
-        help=f"Base URL of the PIPO server (default: {DEFAULT_BASE_URL})",
+        "--base-url",
+        default=DEFAULT_BASE_URL,
+        help=f"Base URL of the chain server (default: {DEFAULT_BASE_URL})",
     )
     p.add_argument(
-        "--log-path", default=DEFAULT_LOG_PATH,
+        "--log-path",
+        default=DEFAULT_LOG_PATH,
         help=f"Path for the JSONL output log (default: {DEFAULT_LOG_PATH})",
     )
     p.add_argument(
-        "--total", type=int, default=DEFAULT_TOTAL,
-        help=f"Number of lifecycles to create (default: {DEFAULT_TOTAL})",
+        "--total",
+        type=int,
+        default=DEFAULT_TOTAL,
+        help=f"Number of familys to create (default: {DEFAULT_TOTAL})",
     )
     p.add_argument(
-        "--countries", nargs="+", default=DEFAULT_COUNTRIES,
+        "--countries",
+        nargs="+",
+        default=DEFAULT_COUNTRIES,
         help=f"ISO country codes to use (default: {' '.join(DEFAULT_COUNTRIES)})",
     )
     p.add_argument(
-        "--code-type-id", default=DEFAULT_CODE_TYPE_ID,
+        "--code-type-id",
+        default=DEFAULT_CODE_TYPE_ID,
         help=f"Code type ID to use (default: {DEFAULT_CODE_TYPE_ID})",
     )
     p.add_argument(
-        "--delete-events", action="store_true",
+        "--delete-events",
+        action="store_true",
         help="Delete all events via the API before running",
     )
     return p.parse_args(argv)
 
 
 def main():
-    global BASE_URL, LOG_PATH, TOTAL_LIFECYCLES, COUNTRIES, CODE_TYPE_ID, _log_fh
+    global BASE_URL, LOG_PATH, TOTAL_FAMILIES, COUNTRIES, CODE_TYPE_ID, _log_fh
 
     args = parse_args()
     BASE_URL = args.base_url
     LOG_PATH = Path(args.log_path)
-    TOTAL_LIFECYCLES = args.total
+    TOTAL_FAMILIES = args.total
     COUNTRIES = [c.upper() for c in args.countries]
     CODE_TYPE_ID = args.code_type_id
 
-    print(f"PIPO API Test — target: {BASE_URL}")
+    print(f"chain API Test — target: {BASE_URL}")
     print(f"Log file: {LOG_PATH.resolve()}")
-    print(f"Lifecycles: {TOTAL_LIFECYCLES}  Countries: {COUNTRIES}  CodeType: {CODE_TYPE_ID}\n")
+    print(f"Lifecycles: {TOTAL_FAMILIES}  Countries: {COUNTRIES}  CodeType: {CODE_TYPE_ID}\n")
 
     _log_fh = LOG_PATH.open("w", encoding="utf-8")
     try:
         setup()
         if args.delete_events:
             delete_all_events()
-        create_lifecycles()
+        create_families()
         run_failure_cases()
         run_spot_checks()
 

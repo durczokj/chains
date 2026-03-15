@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Code ↔ Family Converter – chain{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-6">Code ↔ Family Converter</h1>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+    <!-- Code → Family -->
+    <div class="bg-white shadow rounded p-6">
+        <h2 class="text-lg font-semibold mb-4">Code → Family</h2>
+        <form method="get">
+            <input type="hidden" name="mode" value="code_to_family">
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-sm text-gray-600">Code</label>
+                    <input type="number" name="code" value="{{ code_val|default:'' }}"
+                           class="border rounded px-2 py-1 w-full" required>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600">Code Type</label>
+                    <select name="code_type" class="border rounded px-2 py-1 w-full" required>
+                        <option value="">---</option>
+                        {% for ct in code_types %}
+                        <option value="{{ ct.id }}" {% if ct.id == code_type_val %}selected{% endif %}>{{ ct.type }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600">Country</label>
+                    <select name="country" class="border rounded px-2 py-1 w-full" required>
+                        <option value="">---</option>
+                        {% for c in countries %}
+                        <option value="{{ c.code }}" {% if c.code == country_val %}selected{% endif %}>{{ c.code }} – {{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600">Date</label>
+                    <input type="date" name="date" value="{{ date_val|default:'' }}"
+                           class="border rounded px-2 py-1 w-full" required>
+                </div>
+            </div>
+            <button type="submit" class="mt-4 bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 w-full">
+                Resolve →
+            </button>
+        </form>
+
+        {% if mode == "code_to_family" %}
+        <div class="mt-4">
+            {% if ctl_results %}
+            <div class="bg-green-50 border border-green-200 rounded p-3">
+                <p class="text-sm text-gray-600 mb-2">Results:</p>
+                {% for r in ctl_results %}
+                <div class="{% if not forloop.first %}mt-2 pt-2 border-t border-green-200{% endif %}">
+                    <p class="font-mono font-semibold text-green-800">
+                        <a href="{% url 'family-detail' r.product_family_id %}" class="hover:underline">
+                            {{ r.product_family_identifier }}
+                        </a>
+                    </p>
+                    <p class="text-xs text-gray-500">
+                        Generation #{{ r.generation_id }} · {{ r.start_date }} – {{ r.end_date }}
+                    </p>
+                </div>
+                {% endfor %}
+            </div>
+            {% elif ctl_searched %}
+            <div class="bg-yellow-50 border border-yellow-200 rounded p-3 text-yellow-800 text-sm">
+                No matching family found for the given parameters.
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Family → Code(s) -->
+    <div class="bg-white shadow rounded p-6">
+        <h2 class="text-lg font-semibold mb-4">Family → Code(s)</h2>
+        <form method="get">
+            <input type="hidden" name="mode" value="family_to_code">
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-sm text-gray-600">Family Identifier</label>
+                    <input type="text" name="identifier" value="{{ identifier_val|default:'' }}"
+                           class="border rounded px-2 py-1 w-full" required>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600">Country</label>
+                    <select name="rev_country" class="border rounded px-2 py-1 w-full" required>
+                        <option value="">---</option>
+                        {% for c in countries %}
+                        <option value="{{ c.code }}" {% if c.code == rev_country_val %}selected{% endif %}>{{ c.code }} – {{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600">Date</label>
+                    <input type="date" name="rev_date" value="{{ rev_date_val|default:'' }}"
+                           class="border rounded px-2 py-1 w-full" required>
+                </div>
+            </div>
+            <button type="submit" class="mt-4 bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 w-full">
+                Resolve →
+            </button>
+        </form>
+
+        {% if mode == "family_to_code" %}
+        <div class="mt-4">
+            {% if ltc_results %}
+            <div class="bg-green-50 border border-green-200 rounded p-3">
+                <p class="text-sm text-gray-600 mb-2">Active code(s) for <strong>{{ identifier_val }}</strong> on {{ rev_date_val }}:</p>
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-left text-gray-500">
+                            <th class="pr-4">Code</th>
+                            <th class="pr-4">Start</th>
+                            <th>End</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in ltc_results %}
+                        <tr>
+                            <td class="pr-4 font-mono font-semibold text-green-800">{{ r.code }}</td>
+                            <td class="pr-4 text-gray-500">{{ r.start_date }}</td>
+                            <td class="text-gray-500">{{ r.end_date }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% elif ltc_searched %}
+            <div class="bg-yellow-50 border border-yellow-200 rounded p-3 text-yellow-800 text-sm">
+                No active codes found for the given parameters.
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+</div>
+{% endblock %}

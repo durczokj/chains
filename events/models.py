@@ -1,3 +1,5 @@
+import datetime
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -6,6 +8,7 @@ from django.db import models
 class Country(models.Model):
     code = models.CharField(max_length=2, primary_key=True)
     name = models.CharField(max_length=100)
+    families_dirty = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["code"]
@@ -24,9 +27,10 @@ class CodeType(models.Model):
 
 
 class Event(models.Model):
-    date = models.DateField()
     iso_country_code = models.ForeignKey(
-        Country, on_delete=models.PROTECT, db_column="iso_country_code",
+        Country,
+        on_delete=models.PROTECT,
+        db_column="iso_country_code",
     )
     comment = models.TextField(blank=True, default="")
 
@@ -37,124 +41,127 @@ class Event(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["-date", "-created_at"]
+        ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["iso_country_code"]),
-            models.Index(fields=["date"]),
         ]
 
     def __str__(self):
-        return f"Event {self.pk} – {self.iso_country_code} – {self.date}"
+        return f"Event {self.pk} – {self.iso_country_code}"
 
 
 class TransitionType(models.TextChoices):
     INTRODUCTION = "INTRO", "Introduction"
     DISCONTINUATION = "DISCONT", "Discontinuation"
-    PIPO = "PIPO", "PIPO"
+    chain = "chain", "chain"
 
 
 class CodeTransition(models.Model):
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="transitions")
     code_type = models.ForeignKey(CodeType, on_delete=models.PROTECT, related_name="transitions")
     type = models.CharField(max_length=7, choices=TransitionType.choices)
+    date = models.DateField()
 
     class Meta:
+        ordering = ["date", "pk"]
         indexes = [
             models.Index(fields=["type"]),
+            models.Index(fields=["date"]),
         ]
 
     def __str__(self):
-        return f"{self.get_type_display()} ({self.code_type}) – Event {self.event_id}"
+        return f"{self.get_type_display()} ({self.code_type}) {self.date} – Event {self.event_id}"
 
     def clean(self):
         # Validate that exactly one subtype record exists
         if self.pk:
             has_intro = hasattr(self, "introduction")
             has_disco = hasattr(self, "discontinuation")
-            has_pipo = hasattr(self, "pipo")
+            has_chain = hasattr(self, "chain")
             if self.type == TransitionType.INTRODUCTION and not has_intro:
                 raise ValidationError("Introduction transition requires an Introduction record.")
             elif self.type == TransitionType.DISCONTINUATION and not has_disco:
-                raise ValidationError("Discontinuation transition requires a Discontinuation record.")
-            elif self.type == TransitionType.PIPO and not has_pipo:
-                raise ValidationError("PIPO transition requires a PIPO record.")
+                raise ValidationError(
+                    "Discontinuation transition requires a Discontinuation record."
+                )
+            elif self.type == TransitionType.chain and not has_chain:
+                raise ValidationError("chain transition requires a chain record.")
 
 
 class Introduction(models.Model):
     code_transition = models.OneToOneField(
         CodeTransition, on_delete=models.CASCADE, related_name="introduction"
     )
-    pi_code = models.BigIntegerField()
-
-    def clean(self):
-        from lifecycles.models import Generation
-
-        if self.code_transition_id:
-            ct = self.code_transition
-            if Generation.objects.filter(
-                code=self.pi_code,
-                product_family__code_type=ct.code_type,
-                end_date__year=9999,
-            ).exists():
-                raise ValidationError("PI code is already an active generation.")
+    introduction_code = models.BigIntegerField()
 
     def __str__(self):
-        return f"Introduction pi_code={self.pi_code}"
+        return f"Introduction introduction_code={self.introduction_code}"
 
 
 class Discontinuation(models.Model):
     code_transition = models.OneToOneField(
         CodeTransition, on_delete=models.CASCADE, related_name="discontinuation"
     )
-    po_code = models.BigIntegerField()
-
-    def clean(self):
-        from lifecycles.models import Generation
-
-        if self.code_transition_id:
-            ct = self.code_transition
-            if not Generation.objects.filter(
-                code=self.po_code,
-                product_family__code_type=ct.code_type,
-                end_date__year=9999,
-            ).exists():
-                raise ValidationError("PO code is not an active generation.")
+    discontinuation_code = models.BigIntegerField()
 
     def __str__(self):
-        return f"Discontinuation po_code={self.po_code}"
+        return f"Discontinuation discontinuation_code={self.discontinuation_code}"
 
 
-class Pipo(models.Model):
+class Chain(models.Model):
     code_transition = models.OneToOneField(
-        CodeTransition, on_delete=models.CASCADE, related_name="pipo"
+        CodeTransition, on_delete=models.CASCADE, related_name="chain"
     )
-    pi_code = models.BigIntegerField()
-    po_code = models.BigIntegerField()
+    introduction_code = models.BigIntegerField()
+    discontinuation_code = models.BigIntegerField()
 
     class Meta:
-        verbose_name = "PIPO"
-        verbose_name_plural = "PIPOs"
+        verbose_name = "chain"
+        verbose_name_plural = "chains"
 
     def __str__(self):
-        return f"PIPO pi={self.pi_code} po={self.po_code}"
+        return (
+            f"chain introduction={self.introduction_code}"
+            f" discontinuation={self.discontinuation_code}"
+        )
 
     def clean(self):
-        if self.pi_code == self.po_code:
-            raise ValidationError("PI and PO codes must differ.")
+        if self.introduction_code == self.discontinuation_code:
+            raise ValidationError("Introduction and discontinuation codes must differ.")
 
-        from lifecycles.models import Generation
 
-        if self.code_transition_id:
-            ct = self.code_transition
-            if not Generation.objects.filter(
-                code=self.po_code,
-                product_family__code_type=ct.code_type,
-                end_date__year=9999,
-            ).exists():
-                raise ValidationError("PO code is not an active generation.")
-            if not Generation.objects.filter(
-                code=self.pi_code,
-                product_family__code_type=ct.code_type,
-                end_date__year=9999,
-            ).exists():
-                raise ValidationError("PI code is not an active generation.")
+class CodeState(models.Model):
+    """Denormalized per-code state for fast O(1) validation.
+
+    Tracks whether a code is currently active or discontinued, scoped
+    per (country, code_type, code).  Updated incrementally as events
+    are saved — no full recompute needed.
+    """
+
+    class Status(models.TextChoices):
+        ACTIVE = "ACTIVE", "Active"
+        DISCONTINUED = "DISCONTINUED", "Discontinued"
+
+    iso_country_code = models.ForeignKey(
+        Country,
+        on_delete=models.CASCADE,
+        db_column="iso_country_code",
+    )
+    code_type = models.ForeignKey("CodeType", on_delete=models.CASCADE)
+    code = models.BigIntegerField()
+    status = models.CharField(max_length=13, choices=Status.choices)
+    start_date = models.DateField()
+    end_date = models.DateField(default=datetime.date(9999, 12, 31))
+
+    class Meta:
+        unique_together = [("iso_country_code", "code_type", "code", "start_date")]
+        indexes = [
+            models.Index(fields=["iso_country_code", "code_type", "code"]),
+            models.Index(fields=["status"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"CodeState {self.code} ({self.code_type})"
+            f" [{self.status}] {self.start_date}\u2013{self.end_date}"
+        )

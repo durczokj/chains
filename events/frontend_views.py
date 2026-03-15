@@ -1,11 +1,14 @@
+import datetime
+
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
-from events.forms import EventForm, TransitionForm
-from events.models import CodeTransition, Event
-from lifecycles.engine import recompute_lifecycles
-from lifecycles.models import Generation
+from events.forms import EventForm
+from events.models import CodeState, CodeType, Country, Event, TransitionType
+from events.services import save_event_transitions
+from families.models import Generation
 
 
 def event_list_view(request):
@@ -14,7 +17,7 @@ def event_list_view(request):
         "transitions__code_type",
         "transitions__introduction",
         "transitions__discontinuation",
-        "transitions__pipo",
+        "transitions__chain",
     )
     if country:
         qs = qs.filter(iso_country_code=country)
@@ -23,15 +26,19 @@ def event_list_view(request):
         .distinct()
         .order_by("iso_country_code")
     )
-    return render(request, "events/list.html", {
-        "events": qs,
-        "countries": countries,
-        "selected_country": country,
-    })
+    return render(
+        request,
+        "events/list.html",
+        {
+            "events": qs,
+            "countries": countries,
+            "selected_country": country,
+        },
+    )
 
 
 def event_create_view(request):
-    """Create the event (date, country, comment) then redirect to edit page to add transitions."""
+    """Create the event (country, comment) then redirect to edit page to add transitions."""
     if request.method == "POST":
         form = EventForm(request.POST)
         if form.is_valid():
@@ -42,82 +49,111 @@ def event_create_view(request):
             return redirect("event-edit", pk=event.pk)
     else:
         form = EventForm()
-    return render(request, "events/event_form.html", {
-        "form": form,
-        "title": "Create Event",
-    })
+    return render(
+        request,
+        "events/event_form.html",
+        {
+            "form": form,
+            "title": "Create Event",
+        },
+    )
 
 
 def event_edit_view(request, pk):
-    """Edit event details and manage transitions (add/delete)."""
+    """Edit event details and transitions together.  All transitions are
+    submitted as a batch and replaced atomically."""
     event = get_object_or_404(Event, pk=pk)
-    transitions = event.transitions.select_related(
-        "code_type", "introduction", "discontinuation", "pipo"
-    ).order_by("pk")
-
-    tform_errors = []
+    code_types = CodeType.objects.all()
+    errors: list[str] = []
 
     if request.method == "POST":
-        action = request.POST.get("action", "")
-
-        if action == "update_event":
-            form = EventForm(request.POST, instance=event)
-            if form.is_valid():
-                form.save()
-                recompute_lifecycles(iso_country_code=event.iso_country_code)
+        form = EventForm(request.POST, instance=event)
+        if form.is_valid():
+            transitions_data = _parse_transitions(request.POST)
+            try:
+                with transaction.atomic():
+                    form.save()
+                    save_event_transitions(event, transitions_data)
+            except (ValidationError, ValueError) as e:
+                errors = [str(m) for m in e.messages] if hasattr(e, "messages") else [str(e)]
+                event.refresh_from_db()
+            else:
                 return redirect("event-edit", pk=event.pk)
         else:
-            form = EventForm(instance=event)
-
-        if action == "add_transition":
-            tform = TransitionForm(request.POST)
-            if tform.is_valid():
-                try:
-                    tform.save(event)
-                except ValidationError as e:
-                    tform_errors = e.messages
-                else:
-                    return redirect("event-edit", pk=event.pk)
-            else:
-                tform_errors = [
-                    msg
-                    for errors in tform.errors.values()
-                    for msg in errors
-                ]
-                tform = TransitionForm()
-        else:
-            tform = TransitionForm()
+            errors = [str(msg) for errs in form.errors.values() for msg in errs]
     else:
         form = EventForm(instance=event)
-        tform = TransitionForm()
 
-    return render(request, "events/edit.html", {
-        "event": event,
-        "form": form,
-        "tform": tform,
-        "transitions": transitions,
-        "tform_errors": tform_errors,
-        "title": "Edit Event",
-    })
+    transitions = event.transitions.select_related(
+        "code_type", "introduction", "discontinuation", "chain"
+    ).order_by("pk")
+
+    return render(
+        request,
+        "events/edit.html",
+        {
+            "event": event,
+            "form": form,
+            "transitions": transitions,
+            "code_types": code_types,
+            "errors": errors,
+            "title": "Edit Event",
+        },
+    )
 
 
-def transition_delete_view(request, pk):
-    """Delete a single transition and recompute."""
-    ct = get_object_or_404(CodeTransition, pk=pk)
-    event = ct.event
-    if request.method == "POST":
-        ct.delete()
-        # If event has no more transitions, keep it — user may add more
-        recompute_lifecycles(iso_country_code=event.iso_country_code)
-    return redirect("event-edit", pk=event.pk)
+def _parse_transitions(post_data):
+    """Parse indexed transition fields from POST data."""
+    count = int(post_data.get("transition_count", 0))
+    result = []
+    for i in range(count):
+        p = f"t-{i}-"
+        t = post_data.get(f"{p}type", "").strip()
+        if not t:
+            continue
+        date_str = post_data.get(f"{p}date", "").strip()
+        pi = post_data.get(f"{p}introduction_code", "").strip()
+        po = post_data.get(f"{p}discontinuation_code", "").strip()
+        result.append(
+            {
+                "date": datetime.date.fromisoformat(date_str) if date_str else None,
+                "type": t,
+                "code_type_id": post_data.get(f"{p}code_type", "").strip(),
+                "introduction_code": int(pi) if pi else None,
+                "discontinuation_code": int(po) if po else None,
+            }
+        )
+    return result
 
 
 def event_delete_view(request, pk):
     event = get_object_or_404(Event, pk=pk)
     country = event.iso_country_code
+    country_code = country.pk if hasattr(country, "pk") else country
     if request.method == "POST":
-        event.delete()
-        recompute_lifecycles(iso_country_code=country)
+        with transaction.atomic():
+            # Rollback CodeState for this event's transitions
+            for ct in event.transitions.select_related("introduction", "discontinuation", "chain"):
+                if ct.type == TransitionType.INTRODUCTION:
+                    CodeState.objects.filter(
+                        iso_country_code=country_code,
+                        code_type_id=ct.code_type_id,
+                        code=ct.introduction.introduction_code,
+                        start_date=ct.date,
+                    ).delete()
+                elif ct.type == TransitionType.DISCONTINUATION:
+                    CodeState.objects.filter(
+                        iso_country_code=country_code,
+                        code_type_id=ct.code_type_id,
+                        code=ct.discontinuation.discontinuation_code,
+                        status=CodeState.Status.DISCONTINUED,
+                        end_date=ct.date,
+                    ).update(
+                        status=CodeState.Status.ACTIVE,
+                        end_date=datetime.date(9999, 12, 31),
+                    )
+            event.delete()
+            Country.objects.filter(pk=country_code).update(families_dirty=True)
         return redirect("event-list")
     return render(request, "events/confirm_delete.html", {"event": event})
 
@@ -125,7 +161,7 @@ def event_delete_view(request, pk):
 def active_codes_json_view(request):
     """Return active generation codes as JSON, optionally filtered by code_type."""
     code_type = request.GET.get("code_type", "")
-    qs = Generation.objects.filter(end_date__year=9999)
+    qs = Generation.objects.filter(discontinuation__isnull=True)
     if code_type:
         qs = qs.filter(product_family__code_type=code_type)
     codes = sorted(qs.values_list("code", flat=True).distinct())

@@ -24,7 +24,7 @@ erDiagram
         int code_transition_id
         int code
     }
-    PIPO {
+    chain {
         int id
         int code_transition_id
         int pi_code
@@ -60,7 +60,7 @@ erDiagram
     CODE_TYPE ||--o{ CODE_TRANSITION : "has"
     CODE_TRANSITION ||--o| INTRODUCTION : "is"
     CODE_TRANSITION ||--o| DISCONTINUATION : "is"
-    CODE_TRANSITION ||--o| PIPO : "is"
+    CODE_TRANSITION ||--o| chain : "is"
     CODE_TYPE ||--o{ PRODUCT_FAMILY : "has"
     PRODUCT_FAMILY ||--o{ GENERATION : "has"
     GENERATION ||--o{ GENERATION_LINK : "predecessor"

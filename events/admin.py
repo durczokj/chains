@@ -1,13 +1,13 @@
 from django.contrib import admin
 
 from events.models import (
+    Chain,
     CodeTransition,
     CodeType,
     Country,
     Discontinuation,
     Event,
     Introduction,
-    Pipo,
 )
 
 
@@ -33,8 +33,8 @@ class DiscontinuationInline(admin.StackedInline):
     extra = 0
 
 
-class PipoInline(admin.StackedInline):
-    model = Pipo
+class ChainInline(admin.StackedInline):
+    model = Chain
     extra = 0
 
 
@@ -46,13 +46,13 @@ class CodeTransitionInline(admin.TabularInline):
 
 @admin.register(CodeTransition)
 class CodeTransitionAdmin(admin.ModelAdmin):
-    list_display = ["id", "event", "code_type", "type"]
+    list_display = ["id", "event", "code_type", "type", "date"]
     list_filter = ["type", "code_type"]
-    inlines = [IntroductionInline, DiscontinuationInline, PipoInline]
+    inlines = [IntroductionInline, DiscontinuationInline, ChainInline]
 
 
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
-    list_display = ["id", "date", "iso_country_code", "comment"]
+    list_display = ["id", "iso_country_code", "comment"]
     list_filter = ["iso_country_code"]
     inlines = [CodeTransitionInline]

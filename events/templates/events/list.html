@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Events – PIPO{% endblock %}
+{% block title %}Events – chain{% endblock %}
 {% block content %}
 <div class="flex justify-between items-center mb-4">
     <h1 class="text-2xl font-bold">Events</h1>
@@ -22,7 +22,6 @@
 <table class="w-full bg-white shadow rounded overflow-hidden">
     <thead class="bg-gray-100">
         <tr>
-            <th class="px-4 py-2 text-left text-sm">Date</th>
             <th class="px-4 py-2 text-left text-sm">Country</th>
             <th class="px-4 py-2 text-left text-sm">Transitions</th>
             <th class="px-4 py-2 text-left text-sm">Comment</th>
@@ -32,24 +31,23 @@
     <tbody>
         {% for event in events %}
         <tr class="border-t">
-            <td class="px-4 py-2 text-sm">{{ event.date }}</td>
             <td class="px-4 py-2 text-sm font-mono">{{ event.iso_country_code }}</td>
             <td class="px-4 py-2 text-xs font-mono">
                 {% for ct in event.transitions.all %}
                 <div class="mb-1">
                     <span class="inline-block px-2 py-0.5 text-xs font-medium rounded
-                        {% if ct.type == 'PIPO' %}bg-purple-100 text-purple-700
+                        {% if ct.type == 'chain' %}bg-purple-100 text-purple-700
                         {% elif ct.type == 'INTRO' %}bg-green-100 text-green-700
                         {% else %}bg-red-100 text-red-700{% endif %}">
                         {{ ct.get_type_display }}
                     </span>
-                    <span class="text-gray-500">{{ ct.code_type }}</span>
+                    <span class="text-gray-500">{{ ct.date }} {{ ct.code_type }}</span>
                     {% if ct.introduction %}
-                        pi:{{ ct.introduction.pi_code }}
+                        intro:{{ ct.introduction.introduction_code }}
                     {% elif ct.discontinuation %}
-                        po:{{ ct.discontinuation.po_code }}
-                    {% elif ct.pipo %}
-                        pi:{{ ct.pipo.pi_code }} → po:{{ ct.pipo.po_code }}
+                        disc:{{ ct.discontinuation.discontinuation_code }}
+                    {% elif ct.chain %}
+                        intro:{{ ct.chain.introduction_code }} → disc:{{ ct.chain.discontinuation_code }}
                     {% endif %}
                 </div>
                 {% endfor %}
