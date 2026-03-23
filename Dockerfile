@@ -9,4 +9,4 @@ COPY . .
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "python manage.py migrate --run-syncdb && python manage.py runserver 0.0.0.0:8080"]
+CMD ["sh", "-c", "python manage.py migrate --run-syncdb && python manage.py seed && python manage.py runserver 0.0.0.0:8080"]
