@@ -52,12 +52,26 @@ def _proxy_delete(path: str) -> Response:
 
 @app.route("/api/setup/", methods=["POST"])
 def setup():
-    """Seed countries and code types in the Django backend."""
+    """Reset state and seed countries and code types in the Django backend."""
+    # Delete all existing events
+    while True:
+        r = requests.get(f"{DJANGO_URL}/api/events/", params={"page_size": 100})
+        if r.status_code != 200:
+            break
+        data = r.json()
+        events = data.get("results", data) if isinstance(data, dict) else data
+        if not events:
+            break
+        for ev in events:
+            requests.delete(f"{DJANGO_URL}/api/events/{ev['id']}/")
+
+    # Ensure countries exist
     for code, name in COUNTRIES:
         r = requests.get(f"{DJANGO_URL}/api/countries/{code}/")
         if r.status_code == 404:
             requests.post(f"{DJANGO_URL}/api/countries/", json={"code": code, "name": name})
 
+    # Ensure code types exist
     for ct_id, ct_type in CODE_TYPES:
         r = requests.get(f"{DJANGO_URL}/api/code-types/{ct_id}/")
         if r.status_code == 404:
