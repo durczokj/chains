@@ -16,6 +16,8 @@ class GenerationLinkSerializer(serializers.ModelSerializer):
 
 
 class GenerationSerializer(serializers.ModelSerializer):
+    code = serializers.IntegerField(read_only=True)
+    iso_country_code = serializers.CharField(read_only=True)
     start_date = serializers.DateField(read_only=True)
     end_date = serializers.DateField(read_only=True)
 

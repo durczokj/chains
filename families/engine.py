@@ -172,7 +172,7 @@ def _recompute_country_code_type(country: str, code_type_id: str) -> None:
             ProductFamily(
                 code_type_id=code_type_id,
                 identifier=f"{country}-{code_type_id}-{idx:04d}",
-                iso_country_code=country,
+                iso_country_code_id=country,
             )
             for idx, _comp in enumerate(components, start=1)
         ]
@@ -190,8 +190,6 @@ def _recompute_country_code_type(country: str, code_type_id: str) -> None:
                     product_family=pf,
                     introduction=data["intro_ct"],
                     discontinuation=data["disco_ct"],
-                    code=data["code"],
-                    iso_country_code=country,
                 )
             )
 
@@ -218,7 +216,7 @@ def _recompute_country_code_type(country: str, code_type_id: str) -> None:
 
 
 def _check_generation_overlaps_from_graph(
-    G: nx.DiGraph[int], country: str, code_type_id: str
+    G: "nx.DiGraph", country: str, code_type_id: str
 ) -> None:
     """Check for overlapping generations purely from the in-memory graph."""
     by_code = defaultdict(list)
@@ -253,6 +251,7 @@ def get_product_family_mermaid(product_family_id: int) -> str:
     ).select_related("source_transition")
 
     lines = ["graph LR"]
+    generations = generations.select_related("introduction__introduction")
     for gen in generations:
         label = f"Code {gen.code}<br/>{gen.start_date} – {gen.end_date}"
         lines.append(f'    G{gen.pk}["{label}"]')

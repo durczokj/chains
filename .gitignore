@@ -13,3 +13,6 @@ api_test_log.jsonl
 .env
 *.swp
 *~
+
+# All files in the notebooks directory
+notebooks/*

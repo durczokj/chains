@@ -2,7 +2,7 @@ import datetime
 
 from django.db import models
 
-from events.models import CodeTransition, CodeType
+from events.models import CodeTransition, CodeType, Country
 
 
 class ProductFamily(models.Model):
@@ -10,7 +10,11 @@ class ProductFamily(models.Model):
         CodeType, on_delete=models.CASCADE, related_name="product_families"
     )
     identifier = models.CharField(max_length=255, unique=True)
-    iso_country_code = models.CharField(max_length=2, db_index=True)
+    iso_country_code = models.ForeignKey(
+        Country,
+        on_delete=models.CASCADE,
+        db_column="iso_country_code",
+    )
 
     class Meta:
         ordering = ["iso_country_code", "identifier"]
@@ -34,11 +38,16 @@ class Generation(models.Model):
         null=True,
         blank=True,
     )
-    code = models.BigIntegerField()
-    iso_country_code = models.CharField(max_length=2, db_index=True)
-
     class Meta:
         ordering = ["introduction__date"]
+
+    @property
+    def code(self) -> int:
+        return self.introduction.introduction.introduction_code
+
+    @property
+    def iso_country_code(self) -> str:
+        return self.product_family.iso_country_code_id
 
     @property
     def start_date(self) -> datetime.date:

@@ -72,13 +72,13 @@ def _resolve_code(
 
     gens = (
         Generation.objects.filter(
-            code=code,
+            introduction__introduction__introduction_code=code,
             product_family__code_type_id=code_type,
-            iso_country_code=country,
+            product_family__iso_country_code=country,
             introduction__date__lte=date,
         )
         .filter(Q(discontinuation__isnull=True) | Q(discontinuation__date__gte=date))
-        .select_related("product_family", "introduction", "discontinuation")
+        .select_related("product_family", "introduction__introduction", "discontinuation")
     )
 
     results = []
@@ -223,25 +223,25 @@ def generation_list_view(request: HttpRequest) -> HttpResponse:
 
     qs = Generation.objects.select_related(
         "product_family__code_type",
-        "introduction",
+        "introduction__introduction",
         "discontinuation",
-    ).order_by("iso_country_code", "code", "introduction__date")
+    ).order_by("product_family__iso_country_code", "introduction__introduction__introduction_code", "introduction__date")
 
     if country:
-        qs = qs.filter(iso_country_code=country)
+        qs = qs.filter(product_family__iso_country_code=country)
     if code_type:
         qs = qs.filter(product_family__code_type_id=code_type)
     if code:
-        qs = qs.filter(code=code)
+        qs = qs.filter(introduction__introduction__introduction_code=code)
     if status_filter == "active":
         qs = qs.filter(discontinuation__isnull=True)
     elif status_filter == "discontinued":
         qs = qs.filter(discontinuation__isnull=False)
 
     countries = (
-        Generation.objects.values_list("iso_country_code", flat=True)
+        Generation.objects.values_list("product_family__iso_country_code", flat=True)
         .distinct()
-        .order_by("iso_country_code")
+        .order_by("product_family__iso_country_code")
     )
     code_types = CodeType.objects.all()
 
@@ -338,7 +338,7 @@ def converter_view(request: HttpRequest) -> HttpResponse:
                         .select_related("introduction", "discontinuation")
                     )
                     if rev_country:
-                        gens = gens.filter(iso_country_code=rev_country)
+                        gens = gens.filter(product_family__iso_country_code=rev_country)
                     for gen in gens:
                         results.append(
                             {
