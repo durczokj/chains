@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+db.sqlite3
+.git/
+.mypy_cache/
+.pytest_cache/
+notebooks/
+*.egg-info/
+.env
