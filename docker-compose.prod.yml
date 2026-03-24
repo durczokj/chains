@@ -1,0 +1,13 @@
+services:
+  chains:
+    image: durczokj/chains:latest
+    ports:
+      - "8081:8080"
+    volumes:
+      - db-data:/app/data
+    environment:
+      - DB_PATH=/app/data/db.sqlite3
+    restart: unless-stopped
+
+volumes:
+  db-data:
