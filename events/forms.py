@@ -76,7 +76,7 @@ class CodeTransitionForm(forms.ModelForm):
 
     def _is_active_code(self, code: int, code_type: CodeType) -> bool:
         return Generation.objects.filter(
-            code=code,
+            introduction__introduction__introduction_code=code,
             product_family__code_type=code_type,
             discontinuation__isnull=True,
         ).exists()
@@ -162,7 +162,7 @@ class TransitionForm(forms.Form):
 
     def _is_active_code(self, code: int, code_type: CodeType) -> bool:
         return Generation.objects.filter(
-            code=code,
+            introduction__introduction__introduction_code=code,
             product_family__code_type=code_type,
             discontinuation__isnull=True,
         ).exists()

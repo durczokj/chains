@@ -21,7 +21,7 @@ CODE_TYPES = [
 class Command(BaseCommand):
     help = "Seed countries and code types required by the case study."
 
-    def handle(self, *args, **kwargs):
+    def handle(self, *args: object, **kwargs: object) -> None:
         for code, name in COUNTRIES:
             Country.objects.get_or_create(code=code, defaults={"name": name})
         for ct_id, ct_type in CODE_TYPES:

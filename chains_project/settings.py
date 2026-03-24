@@ -125,6 +125,11 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 
+# Subpath configuration for reverse proxy
+FORCE_SCRIPT_NAME = os.environ.get("SCRIPT_NAME", None)
+if FORCE_SCRIPT_NAME:
+    STATIC_URL = FORCE_SCRIPT_NAME + "/static/"
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
