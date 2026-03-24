@@ -164,8 +164,10 @@ def event_delete_view(request: HttpRequest, pk: int) -> HttpResponse:
 def active_codes_json_view(request: HttpRequest) -> JsonResponse:
     """Return active generation codes as JSON, optionally filtered by code_type."""
     code_type = request.GET.get("code_type", "")
-    qs = Generation.objects.filter(discontinuation__isnull=True)
+    qs = Generation.objects.filter(discontinuation__isnull=True).select_related(
+        "introduction__introduction"
+    )
     if code_type:
         qs = qs.filter(product_family__code_type=code_type)
-    codes = sorted(qs.values_list("code", flat=True).distinct())
+    codes = sorted({g.introduction.introduction.introduction_code for g in qs})
     return JsonResponse({"codes": codes})

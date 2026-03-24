@@ -19,10 +19,12 @@ def _active_code_choices(
     code_type: CodeType | None = None,
 ) -> list[tuple[str | int, str]]:
     """Return choices of currently active codes (end_date = 9999-12-31)."""
-    qs = Generation.objects.filter(discontinuation__isnull=True)
+    qs = Generation.objects.filter(discontinuation__isnull=True).select_related(
+        "introduction__introduction"
+    )
     if code_type:
         qs = qs.filter(product_family__code_type=code_type)
-    codes = sorted(qs.values_list("code", flat=True).distinct())
+    codes = sorted({g.introduction.introduction.introduction_code for g in qs})
     return [("", "---")] + [(c, str(c)) for c in codes]
 
 
