@@ -1,6 +1,7 @@
 services:
   chains:
     image: durczokj/chains:latest
+    container_name: chains
     ports:
       - "8081:8080"
     volumes:

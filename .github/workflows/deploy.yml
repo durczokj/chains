@@ -42,4 +42,4 @@ jobs:
             cd /opt/chains
             sudo docker compose pull chains
             sudo docker compose up -d chains
-            sudo docker exec chains python manage.py migrate --noinput
+            sudo docker compose exec chains python manage.py migrate --noinput
